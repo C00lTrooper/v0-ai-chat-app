@@ -55,7 +55,7 @@ export function ChatInput({ onSend, onStop, isLoading, disabled }: ChatInputProp
             value={input}
             onChange={handleInput}
             onKeyDown={handleKeyDown}
-            placeholder="Message DeepSeek R1..."
+            placeholder="Message Gemini 3 Flash..."
             disabled={disabled}
             rows={1}
             className={cn(
@@ -86,7 +86,7 @@ export function ChatInput({ onSend, onStop, isLoading, disabled }: ChatInputProp
           )}
         </div>
         <p className="mt-2 text-center text-xs text-muted-foreground">
-          DeepSeek R1 via OpenRouter. Responses may not always be accurate.
+          Gemini 3 Flash via OpenRouter. Responses may not always be accurate.
         </p>
       </div>
     </div>
