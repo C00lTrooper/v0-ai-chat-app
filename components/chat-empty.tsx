@@ -34,7 +34,7 @@ export function ChatEmpty({ onSuggestionClick }: ChatEmptyProps) {
         What can I help you with?
       </h1>
       <p className="mt-2 text-sm text-muted-foreground text-center max-w-md">
-        Powered by DeepSeek R1 with reasoning capabilities. Ask me anything.
+        Powered by Gemini 3 Flash via OpenRouter. Ask me anything.
       </p>
       <div className="mt-8 grid w-full max-w-lg gap-3 sm:grid-cols-3">
         {suggestions.map((s) => (

@@ -17,7 +17,7 @@ export function ChatHeader({ hasMessages, onClear }: ChatHeaderProps) {
         </div>
         <div>
           <h2 className="text-sm font-semibold text-foreground leading-none">
-            DeepSeek R1
+            Gemini 3 Flash
           </h2>
           <p className="text-xs text-muted-foreground mt-0.5">via OpenRouter</p>
         </div>

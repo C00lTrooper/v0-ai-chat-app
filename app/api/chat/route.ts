@@ -19,7 +19,7 @@ export async function POST(request: Request) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "deepseek/deepseek-r1-0528:free",
+          model: "google/gemini-3-flash-preview",
           messages,
           stream: true,
         }),

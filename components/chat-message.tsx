@@ -39,7 +39,7 @@ export function ChatMessage({ message }: { message: Message }) {
 
       <div className="flex-1 space-y-2 overflow-hidden">
         <p className="text-sm font-medium text-foreground">
-          {isUser ? "You" : "DeepSeek R1"}
+          {isUser ? "You" : "Gemini 3 Flash"}
         </p>
 
         {!isUser && message.reasoning && (
