@@ -1,50 +1,55 @@
-"use client"
+"use client";
 
-import { useState, useRef, useEffect } from "react"
-import { Button } from "@/components/ui/button"
-import { ArrowUp, Square } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { useState, useRef, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { ArrowUp, Square } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface ChatInputProps {
-  onSend: (message: string) => void
-  onStop: () => void
-  isLoading: boolean
-  disabled?: boolean
+  onSend: (message: string) => void;
+  onStop: () => void;
+  isLoading: boolean;
+  disabled?: boolean;
 }
 
-export function ChatInput({ onSend, onStop, isLoading, disabled }: ChatInputProps) {
-  const [input, setInput] = useState("")
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
+export function ChatInput({
+  onSend,
+  onStop,
+  isLoading,
+  disabled,
+}: ChatInputProps) {
+  const [input, setInput] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (!isLoading && textareaRef.current) {
-      textareaRef.current.focus()
+      textareaRef.current.focus();
     }
-  }, [isLoading])
+  }, [isLoading]);
 
   const handleSubmit = () => {
-    const trimmed = input.trim()
-    if (!trimmed || isLoading) return
-    onSend(trimmed)
-    setInput("")
+    const trimmed = input.trim();
+    if (!trimmed || isLoading) return;
+    onSend(trimmed);
+    setInput("");
     if (textareaRef.current) {
-      textareaRef.current.style.height = "auto"
+      textareaRef.current.style.height = "auto";
     }
-  }
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault()
-      handleSubmit()
+      e.preventDefault();
+      handleSubmit();
     }
-  }
+  };
 
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInput(e.target.value)
-    const el = e.target
-    el.style.height = "auto"
-    el.style.height = Math.min(el.scrollHeight, 200) + "px"
-  }
+    setInput(e.target.value);
+    const el = e.target;
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, 200) + "px";
+  };
 
   return (
     <div className="border-t border-border bg-background px-4 pb-4 pt-3">
@@ -60,7 +65,7 @@ export function ChatInput({ onSend, onStop, isLoading, disabled }: ChatInputProp
             rows={1}
             className={cn(
               "flex-1 resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none disabled:cursor-not-allowed disabled:opacity-50",
-              "max-h-[200px]"
+              "max-h-[200px]",
             )}
           />
           {isLoading ? (
@@ -90,5 +95,5 @@ export function ChatInput({ onSend, onStop, isLoading, disabled }: ChatInputProp
         </p>
       </div>
     </div>
-  )
+  );
 }

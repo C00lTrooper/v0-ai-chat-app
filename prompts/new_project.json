@@ -1,0 +1,31 @@
+{
+  "project_name": "string",
+  "project_summary": {
+    "name": "string",
+    "objective": "string",
+    "duration": "integer",
+    "estimated_budget": "integer",
+    "target_date": "date"
+  },
+  "project_features": [
+    {
+      "name": "string",
+      "description": "string"
+    }
+  ],
+  "project_wbs": [
+    {
+      "order": "integer",
+      "name": "string",
+      "description": "string",
+      "start_date": "date",
+      "end_date": "date",
+      "subtasks": [
+        {
+          "order": "integer",
+          "name": "string"
+        }
+      ]
+    }
+  ]
+}

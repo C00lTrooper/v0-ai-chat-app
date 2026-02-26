@@ -1,5 +1,14 @@
+import { buildNewProjectSystemMessage } from "@/lib/new-project-system-message"
+
 export async function POST(request: Request) {
   const { messages } = await request.json()
+
+  // For the very first user message, prepend a system instruction that
+  // tells the model to answer using the new_project.json template.
+  const outboundMessages =
+    Array.isArray(messages) && messages.length === 1
+      ? [buildNewProjectSystemMessage(), ...messages]
+      : messages
 
   const apiKey = process.env.OPENROUTER_API_KEY
   if (!apiKey) {
@@ -20,7 +29,7 @@ export async function POST(request: Request) {
         },
         body: JSON.stringify({
           model: "google/gemini-3-flash-preview",
-          messages,
+          messages: outboundMessages,
           stream: true,
         }),
       }
