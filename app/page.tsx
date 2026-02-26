@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState } from "react";
 import { useChat } from "@/hooks/use-chat";
 import { ChatHeader } from "@/components/chat-header";
 import { ChatMessage } from "@/components/chat-message";
@@ -8,6 +8,7 @@ import { ChatInput } from "@/components/chat-input";
 import { ChatEmpty } from "@/components/chat-empty";
 import { SettingsDebug } from "@/components/settings-debug";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { ChatJumpButton } from "@/components/chat-jump-button";
 import { AlertCircle } from "lucide-react";
 
 export default function ChatPage() {
@@ -20,10 +21,50 @@ export default function ChatPage() {
     clearMessages,
   } = useChat();
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [isAtBottom, setIsAtBottom] = useState(true);
+  const [hasProjectOverview, setHasProjectOverview] = useState(false);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Track whether the bottom of the chat is visible
+  useEffect(() => {
+    const el = bottomRef.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        setIsAtBottom(entry.isIntersecting);
+      },
+      {
+        root: null,
+        threshold: 0.25,
+      },
+    );
+
+    observer.observe(el);
+
+    return () => observer.disconnect();
+  }, [messages]);
+
+  // Track whether we have a structured project overview in the chat
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const el = document.querySelector("[data-project-overview]");
+    setHasProjectOverview(!!el);
+  }, [messages]);
+
+  const scrollToOverview = () => {
+    const el = document.querySelector<HTMLElement>("[data-project-overview]");
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const scrollToBottom = () => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
 
   return (
     <>
@@ -48,6 +89,14 @@ export default function ChatPage() {
             </div>
           )}
         </ScrollArea>
+
+        <ChatJumpButton
+          hasMessages={messages.length > 0}
+          hasProjectOverview={hasProjectOverview}
+          isAtBottom={isAtBottom}
+          onViewOverview={scrollToOverview}
+          onBackToChat={scrollToBottom}
+        />
 
         <ChatInput
           onSend={sendMessage}

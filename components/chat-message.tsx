@@ -7,11 +7,30 @@ import { cn } from "@/lib/utils"
 import { Bot, User, ChevronDown, ChevronRight, Copy, Check } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { Message } from "@/hooks/use-chat"
+import { extractFirstJsonObject } from "@/lib/parse-project-json"
+import { ProjectSchema, type Project } from "@/lib/project-schema"
+import { ProjectSummary } from "@/components/project-page/ProjectSummary"
+import { ProjectScope } from "@/components/project-page/ProjectScope"
+import { ProjectWbs } from "@/components/project-page/ProjectWbs"
 
 export function ChatMessage({ message }: { message: Message }) {
   const isUser = message.role === "user"
   const [showReasoning, setShowReasoning] = useState(false)
   const [copied, setCopied] = useState(false)
+
+  let project: Project | null = null
+
+  if (!isUser && message.content) {
+    try {
+      const unknown = extractFirstJsonObject(message.content)
+      const parsed = ProjectSchema.safeParse(unknown)
+      if (parsed.success) {
+        project = parsed.data
+      }
+    } catch {
+      project = null
+    }
+  }
 
   const handleCopy = () => {
     navigator.clipboard.writeText(message.content)
@@ -65,6 +84,20 @@ export function ChatMessage({ message }: { message: Message }) {
 
         {isUser ? (
           <p className="text-sm leading-relaxed text-foreground">{message.content}</p>
+        ) : project ? (
+          <div
+            data-project-overview
+            className="mt-1 space-y-6 rounded-xl border bg-background p-4 shadow-sm"
+          >
+            <h2 className="text-base font-semibold tracking-tight">
+              Project Plan: {project.project_name}
+            </h2>
+            <div className="space-y-6">
+              <ProjectSummary project={project} />
+              <ProjectScope project={project} />
+              <ProjectWbs project={project} />
+            </div>
+          </div>
         ) : (
           <div className="prose prose-sm dark:prose-invert max-w-none text-foreground prose-p:leading-relaxed prose-pre:bg-muted prose-pre:border prose-pre:border-border prose-code:text-foreground prose-code:before:content-none prose-code:after:content-none">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
