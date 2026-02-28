@@ -1,9 +1,9 @@
-"use client"
+"use client";
 
-import { Bot, Code, Lightbulb, BookOpen } from "lucide-react"
+import { Code, Lightbulb, BookOpen } from "lucide-react";
 
 interface ChatEmptyProps {
-  onSuggestionClick: (suggestion: string) => void
+  onSuggestionClick: (suggestion: string) => void;
 }
 
 const suggestions = [
@@ -22,18 +22,15 @@ const suggestions = [
     label: "Explain",
     prompt: "Explain how transformers work in machine learning",
   },
-]
+];
 
 export function ChatEmpty({ onSuggestionClick }: ChatEmptyProps) {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center px-4">
-      <div className="flex size-14 items-center justify-center rounded-2xl bg-muted border border-border mb-6">
-        <Bot className="size-7 text-foreground" />
-      </div>
-      <h1 className="text-2xl font-semibold tracking-tight text-foreground text-balance text-center">
+    <div className="flex min-h-full flex-col items-center justify-center px-4 pb-40 text-center">
+      <h1 className="text-2xl font-semibold tracking-tight text-foreground text-balance">
         What can I help you with?
       </h1>
-      <p className="mt-2 text-sm text-muted-foreground text-center max-w-md">
+      <p className="mt-2 text-sm text-muted-foreground max-w-md mx-auto">
         Powered by Gemini 3 Flash via OpenRouter. Ask me anything.
       </p>
       <div className="mt-8 grid w-full max-w-lg gap-3 sm:grid-cols-3">
@@ -44,7 +41,9 @@ export function ChatEmpty({ onSuggestionClick }: ChatEmptyProps) {
             className="flex flex-col gap-2 rounded-xl border border-border bg-card p-4 text-left transition-colors hover:bg-accent hover:text-accent-foreground"
           >
             <s.icon className="size-5 text-muted-foreground" />
-            <span className="text-sm font-medium text-foreground">{s.label}</span>
+            <span className="text-sm font-medium text-foreground">
+              {s.label}
+            </span>
             <span className="text-xs text-muted-foreground line-clamp-2">
               {s.prompt}
             </span>
@@ -52,5 +51,5 @@ export function ChatEmpty({ onSuggestionClick }: ChatEmptyProps) {
         ))}
       </div>
     </div>
-  )
+  );
 }

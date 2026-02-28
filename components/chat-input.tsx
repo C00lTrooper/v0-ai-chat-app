@@ -52,7 +52,7 @@ export function ChatInput({
   };
 
   return (
-    <div className="border-t border-border bg-background px-4 pb-4 pt-3">
+    <div className="fixed inset-x-0 bottom-0 z-10 border-t border-border bg-background/95 px-4 pb-4 pt-3 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05),0_-2px_4px_-2px_rgba(0,0,0,0.05)] dark:shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.2)] backdrop-blur-sm">
       <div className="mx-auto max-w-3xl">
         <div className="relative flex items-end gap-2 rounded-xl border border-border bg-muted/30 px-4 py-3 focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-[2px] transition-all">
           <textarea

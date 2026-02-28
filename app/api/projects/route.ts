@@ -1,4 +1,25 @@
-import { validateAndSaveProject } from "@/lib/project-storage"
+import { listProjects, validateAndSaveProject } from "@/lib/project-storage"
+
+export async function GET() {
+  try {
+    const projects = await listProjects()
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        projects,
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    )
+  } catch (error) {
+    return new Response(
+      JSON.stringify({
+        error: "Failed to list projects",
+        details: String(error),
+      }),
+      { status: 500, headers: { "Content-Type": "application/json" } },
+    )
+  }
+}
 
 export async function POST(request: Request) {
   try {
@@ -11,7 +32,7 @@ export async function POST(request: Request) {
           error: "Invalid project JSON",
           issues: result.issues,
         }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
+        { status: 400, headers: { "Content-Type": "application/json" } },
       )
     }
 
@@ -20,7 +41,7 @@ export async function POST(request: Request) {
         ok: true,
         filePath: `projects/${result.slug}.json`,
       }),
-      { status: 200, headers: { "Content-Type": "application/json" } }
+      { status: 200, headers: { "Content-Type": "application/json" } },
     )
   } catch (error) {
     return new Response(
@@ -28,7 +49,7 @@ export async function POST(request: Request) {
         error: "Failed to save project",
         details: String(error),
       }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
+      { status: 500, headers: { "Content-Type": "application/json" } },
     )
   }
 }

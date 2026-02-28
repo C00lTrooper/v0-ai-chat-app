@@ -2,16 +2,18 @@
 
 import { useRef, useEffect, useState } from "react";
 import { useChat } from "@/hooks/use-chat";
-import { ChatHeader } from "@/components/chat-header";
+import { ChatHeader, type AppTab } from "@/components/chat-header";
 import { ChatMessage } from "@/components/chat-message";
 import { ChatInput } from "@/components/chat-input";
 import { ChatEmpty } from "@/components/chat-empty";
+import { ProjectsView } from "@/components/projects-view";
 import { SettingsDebug } from "@/components/settings-debug";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ChatJumpButton } from "@/components/chat-jump-button";
 import { AlertCircle } from "lucide-react";
 
 export default function ChatPage() {
+  const [activeTab, setActiveTab] = useState<AppTab>("chat");
   const {
     messages,
     isLoading,
@@ -69,40 +71,53 @@ export default function ChatPage() {
   return (
     <>
       <div className="flex h-dvh flex-col bg-background">
-        <ChatHeader hasMessages={messages.length > 0} onClear={clearMessages} />
+        <ChatHeader
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          hasMessages={messages.length > 0}
+          onClear={clearMessages}
+        />
 
-        <ScrollArea className="flex-1">
-          {messages.length === 0 ? (
-            <ChatEmpty onSuggestionClick={sendMessage} />
-          ) : (
-            <div className="mx-auto max-w-3xl divide-y divide-border">
-              {messages.map((message) => (
-                <ChatMessage key={message.id} message={message} />
-              ))}
-              {error && (
-                <div className="flex items-center gap-2 px-4 py-3 text-sm text-destructive">
-                  <AlertCircle className="size-4 shrink-0" />
-                  <p>{error}</p>
+        {activeTab === "projects" ? (
+          <div className="flex-1 pt-14">
+            <ProjectsView />
+          </div>
+        ) : (
+          <>
+            <ScrollArea className="flex-1 pt-14">
+              {messages.length === 0 ? (
+                <ChatEmpty onSuggestionClick={sendMessage} />
+              ) : (
+                <div className="mx-auto max-w-3xl divide-y divide-border pb-40">
+                  {messages.map((message) => (
+                    <ChatMessage key={message.id} message={message} />
+                  ))}
+                  {error && (
+                    <div className="flex items-center gap-2 px-4 py-3 text-sm text-destructive">
+                      <AlertCircle className="size-4 shrink-0" />
+                      <p>{error}</p>
+                    </div>
+                  )}
+                  <div ref={bottomRef} />
                 </div>
               )}
-              <div ref={bottomRef} />
-            </div>
-          )}
-        </ScrollArea>
+            </ScrollArea>
 
-        <ChatJumpButton
-          hasMessages={messages.length > 0}
-          hasProjectOverview={hasProjectOverview}
-          isAtBottom={isAtBottom}
-          onViewOverview={scrollToOverview}
-          onBackToChat={scrollToBottom}
-        />
+            <ChatJumpButton
+              hasMessages={messages.length > 0}
+              hasProjectOverview={hasProjectOverview}
+              isAtBottom={isAtBottom}
+              onViewOverview={scrollToOverview}
+              onBackToChat={scrollToBottom}
+            />
 
-        <ChatInput
-          onSend={sendMessage}
-          onStop={stopGeneration}
-          isLoading={isLoading}
-        />
+            <ChatInput
+              onSend={sendMessage}
+              onStop={stopGeneration}
+              isLoading={isLoading}
+            />
+          </>
+        )}
       </div>
 
       <SettingsDebug

@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef } from "react"
 import { extractFirstJsonObject } from "@/lib/parse-project-json"
+import type { Project } from "@/lib/project-schema"
 
 export interface Message {
   id: string
@@ -159,6 +160,16 @@ export function useChat() {
     setError(null)
   }, [])
 
+  const loadProjectIntoChat = useCallback((project: Project) => {
+    const assistantMessage: Message = {
+      id: crypto.randomUUID(),
+      role: "assistant",
+      content: JSON.stringify(project, null, 2),
+    }
+
+    setMessages((prev) => [...prev, assistantMessage])
+  }, [])
+
   return {
     messages,
     isLoading,
@@ -166,5 +177,6 @@ export function useChat() {
     sendMessage,
     stopGeneration,
     clearMessages,
+    loadProjectIntoChat,
   }
 }
