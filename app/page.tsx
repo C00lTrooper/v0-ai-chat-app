@@ -7,9 +7,11 @@ import { ChatMessage } from "@/components/chat-message";
 import { ChatInput } from "@/components/chat-input";
 import { ChatEmpty } from "@/components/chat-empty";
 import { ProjectsView } from "@/components/projects-view";
+import { CalendarView } from "@/components/calendar-view";
 import { SettingsDebug } from "@/components/settings-debug";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ChatJumpButton } from "@/components/chat-jump-button";
+import { ChatControls } from "@/components/chat-controls";
+import { ChatQuickButtons } from "@/components/chat-quick-buttons";
 import { AlertCircle } from "lucide-react";
 
 export default function ChatPage() {
@@ -82,11 +84,17 @@ export default function ChatPage() {
           <div className="flex-1 pt-14">
             <ProjectsView />
           </div>
+        ) : activeTab === "calendar" ? (
+          <div className="flex-1 overflow-auto">
+            <CalendarView />
+          </div>
         ) : (
           <>
             <ScrollArea className="flex-1 pt-14">
               {messages.length === 0 ? (
-                <ChatEmpty onSuggestionClick={sendMessage} />
+                <div className="flex min-h-[calc(100dvh-theme(spacing.14))] flex-col justify-center">
+                  <ChatEmpty onSuggestionClick={sendMessage} />
+                </div>
               ) : (
                 <div className="mx-auto max-w-3xl divide-y divide-border pb-40">
                   {messages.map((message) => (
@@ -103,12 +111,14 @@ export default function ChatPage() {
               )}
             </ScrollArea>
 
-            <ChatJumpButton
+            <ChatControls
               hasMessages={messages.length > 0}
               hasProjectOverview={hasProjectOverview}
               isAtBottom={isAtBottom}
+              isLoading={isLoading}
               onViewOverview={scrollToOverview}
               onBackToChat={scrollToBottom}
+              onSendQuickPrompt={sendMessage}
             />
 
             <ChatInput

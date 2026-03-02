@@ -3,6 +3,7 @@
 import { useTheme } from "next-themes";
 import {
   Bot,
+  CalendarDays,
   FolderOpen,
   MessageSquare,
   RotateCcw,
@@ -13,7 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-export type AppTab = "chat" | "projects";
+export type AppTab = "chat" | "projects" | "calendar";
 
 interface ChatHeaderProps {
   activeTab: AppTab;
@@ -63,6 +64,10 @@ export function ChatHeader({
             <TabsTrigger value="projects" className="gap-1.5 px-3 text-xs">
               <FolderOpen className="size-3.5" />
               Projects
+            </TabsTrigger>
+            <TabsTrigger value="calendar" className="gap-1.5 px-3 text-xs">
+              <CalendarDays className="size-3.5" />
+              Calendar
             </TabsTrigger>
           </TabsList>
         </Tabs>

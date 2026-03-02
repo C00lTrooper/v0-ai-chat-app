@@ -26,7 +26,7 @@ const suggestions = [
 
 export function ChatEmpty({ onSuggestionClick }: ChatEmptyProps) {
   return (
-    <div className="flex min-h-full flex-col items-center justify-center px-4 pb-40 text-center">
+    <div className="flex flex-col items-center px-4 pb-40 text-center">
       <h1 className="text-2xl font-semibold tracking-tight text-foreground text-balance">
         What can I help you with?
       </h1>
