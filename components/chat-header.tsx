@@ -1,18 +1,29 @@
 "use client";
 
 import { useTheme } from "next-themes";
+import { useRouter } from "next/navigation";
 import {
-  Bot,
   CalendarDays,
   FolderOpen,
+  LogOut,
   MessageSquare,
   RotateCcw,
+  Settings,
   Sun,
-  Moon,
   CircleUser,
+  Home,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { useAuth } from "@/components/auth-provider";
 
 export type AppTab = "chat" | "projects" | "calendar";
 
@@ -30,6 +41,8 @@ export function ChatHeader({
   onClear,
 }: ChatHeaderProps) {
   const { resolvedTheme, setTheme } = useTheme();
+  const router = useRouter();
+  const { logout, userEmail } = useAuth();
 
   const toggleTheme = () => {
     setTheme(resolvedTheme === "dark" ? "light" : "dark");
@@ -39,18 +52,30 @@ export function ChatHeader({
     <header className="fixed left-0 right-0 top-0 z-30 flex h-14 shrink-0 items-center justify-between border-b border-border bg-background px-4">
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-2.5">
-          <div className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Bot className="size-4" />
-          </div>
-          <div>
-            <h2 className="text-sm font-semibold text-foreground leading-none">
-              Gemini 3 Flash
-            </h2>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              via OpenRouter
-            </p>
-          </div>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="text-black"
+            onClick={() => router.push("/")}
+          >
+            <Home className="size-5" />
+            <span className="sr-only">Go home</span>
+          </Button>
         </div>
+      </div>
+      <div className="flex min-w-[7rem] items-center justify-end gap-2">
+        {activeTab === "chat" && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onClear}
+            className={`text-muted-foreground ${!hasMessages ? "invisible" : ""}`}
+            tabIndex={hasMessages ? 0 : -1}
+          >
+            <RotateCcw className="size-4" />
+            New Chat
+          </Button>
+        )}
         <Tabs
           value={activeTab}
           onValueChange={(v) => onTabChange(v as AppTab)}
@@ -71,38 +96,64 @@ export function ChatHeader({
             </TabsTrigger>
           </TabsList>
         </Tabs>
-      </div>
-      <div className="flex min-w-[7rem] items-center justify-end gap-2">
-        {activeTab === "chat" && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onClear}
-            className={`text-muted-foreground ${!hasMessages ? "invisible" : ""}`}
-            tabIndex={hasMessages ? 0 : -1}
-          >
-            <RotateCcw className="size-4" />
-            New Chat
-          </Button>
-        )}
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={toggleTheme}
-          className="relative text-muted-foreground"
-        >
-          <Sun className="size-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
-          <Moon className="absolute size-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
-          <span className="sr-only">Toggle theme</span>
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="bg-foreground text-background transition-none hover:bg-foreground hover:text-background dark:hover:bg-foreground dark:hover:text-background"
-        >
-          <CircleUser className="size-4" />
-          <span className="sr-only">Profile</span>
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="bg-foreground text-background transition-none hover:bg-foreground hover:text-background dark:hover:bg-foreground dark:hover:text-background"
+            >
+              <CircleUser className="size-4" />
+              <span className="sr-only">Profile menu</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuLabel className="flex flex-col gap-0.5">
+              <span className="text-xs text-muted-foreground">
+                Signed in as
+              </span>
+              <span className="truncate text-sm font-medium">
+                {userEmail ?? "guest@example.com"}
+              </span>
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={toggleTheme}
+              className="flex items-center gap-2"
+            >
+              <Sun className="size-4" />
+              <span>Toggle theme</span>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => {
+                router.push("/account");
+              }}
+            >
+              <CircleUser className="size-4" />
+              <span>Account</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => {
+                router.push("/settings");
+              }}
+            >
+              <Settings className="size-4" />
+              <span>Settings</span>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              variant="destructive"
+              onClick={() => {
+                logout();
+                router.push("/login");
+              }}
+            >
+              <LogOut className="size-4" />
+              <span>Log out</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </header>
   );

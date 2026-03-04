@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useChat } from "@/hooks/use-chat";
 import { ChatHeader, type AppTab } from "@/components/chat-header";
 import { ChatMessage } from "@/components/chat-message";
@@ -13,8 +14,11 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { ChatControls } from "@/components/chat-controls";
 import { ChatQuickButtons } from "@/components/chat-quick-buttons";
 import { AlertCircle } from "lucide-react";
+import { useAuth } from "@/components/auth-provider";
 
 export default function ChatPage() {
+  const router = useRouter();
+  const { isAuthenticated } = useAuth();
   const [activeTab, setActiveTab] = useState<AppTab>("chat");
   const {
     messages,
@@ -27,6 +31,12 @@ export default function ChatPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [hasProjectOverview, setHasProjectOverview] = useState(false);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      router.replace("/login");
+    }
+  }, [isAuthenticated, router]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -69,6 +79,10 @@ export default function ChatPage() {
   const scrollToBottom = () => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   };
+
+  if (!isAuthenticated) {
+    return null;
+  }
 
   return (
     <>
