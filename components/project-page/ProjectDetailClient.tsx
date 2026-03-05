@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ChevronLeft, Trash2 } from "lucide-react";
+import { ChevronLeft, MessageSquare, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { useAuth } from "@/components/auth-provider";
@@ -106,7 +106,17 @@ export function ProjectDetailClient({ slug }: { slug: string }) {
             </Link>
           </Button>
 
-          {isOwner && projectId && (
+          <div className="flex items-center gap-2">
+            {projectId && (
+              <Button variant="outline" size="sm" className="gap-1.5" asChild>
+                <Link href={`/?projectId=${projectId}`}>
+                  <MessageSquare className="size-3.5" />
+                  Open Chat
+                </Link>
+              </Button>
+            )}
+
+            {isOwner && projectId && (
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button
@@ -145,6 +155,7 @@ export function ProjectDetailClient({ slug }: { slug: string }) {
               </AlertDialogContent>
             </AlertDialog>
           )}
+          </div>
         </div>
       </div>
       <ProjectPlanPage project={project} />

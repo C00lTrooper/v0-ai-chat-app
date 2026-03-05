@@ -28,9 +28,11 @@ function slugify(name: string, fallback: string): string {
 export function useProjectChat({
   activeProjectId,
   onProjectCreated,
+  useClaudeFirstPrompt,
 }: {
   activeProjectId: Id<"projects"> | null
   onProjectCreated: (projectId: Id<"projects">, slug: string) => void
+  useClaudeFirstPrompt: boolean
 }) {
   const { sessionToken } = useAuth()
   const hasCreatedProjectRef = useRef(false)
@@ -93,11 +95,12 @@ export function useProjectChat({
     apiMessages: Array<{ role: string; content: string }>,
     signal: AbortSignal,
     onDelta: (delta: { content?: string; reasoning?: string }) => void,
+    useClaudeFirstPrompt: boolean,
   ): Promise<{ fullContent: string; fullReasoning: string }> {
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages: apiMessages }),
+      body: JSON.stringify({ messages: apiMessages, useClaudeFirstPrompt }),
       signal,
     })
 
@@ -212,6 +215,7 @@ export function useProjectChat({
               }
             })
           },
+          useClaudeFirstPrompt,
         )
 
         // 4. Persist results
@@ -311,6 +315,7 @@ export function useProjectChat({
       localMessages,
       sendMessageMutation,
       onProjectCreated,
+      useClaudeFirstPrompt,
     ],
   )
 

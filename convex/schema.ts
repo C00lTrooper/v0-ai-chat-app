@@ -27,6 +27,7 @@ export default defineSchema({
     objective: v.string(),
     targetDate: v.string(),
     data: v.string(),
+    pinned: v.optional(v.boolean()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })

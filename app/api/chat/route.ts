@@ -1,14 +1,15 @@
 import { buildNewProjectSystemMessage } from "@/lib/new-project-system-message"
 
 export async function POST(request: Request) {
-  const { messages } = await request.json()
+  const { messages, useClaudeFirstPrompt } = await request.json()
 
   // For the very first user message, prepend a system instruction that
   // tells the model to answer using the new_project.json template.
-  const outboundMessages =
-    Array.isArray(messages) && messages.length === 1
-      ? [buildNewProjectSystemMessage(), ...messages]
-      : messages
+  const isFirstUserMessage = Array.isArray(messages) && messages.length === 1
+
+  const outboundMessages = isFirstUserMessage
+    ? [buildNewProjectSystemMessage(), ...messages]
+    : messages
 
   const apiKey = process.env.OPENROUTER_API_KEY
   if (!apiKey) {
@@ -19,21 +20,23 @@ export async function POST(request: Request) {
   }
 
   try {
-    const response = await fetch(
-      "https://openrouter.ai/api/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "google/gemini-3-flash-preview",
-          messages: outboundMessages,
-          stream: true,
-        }),
-      }
-    )
+    const model =
+      isFirstUserMessage && useClaudeFirstPrompt
+        ? "anthropic/claude-opus-4.5"
+        : "google/gemini-3-flash-preview"
+
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        messages: outboundMessages,
+        stream: true,
+      }),
+    })
 
     if (!response.ok) {
       const errorText = await response.text()

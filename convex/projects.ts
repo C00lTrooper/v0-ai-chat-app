@@ -1,7 +1,7 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 
 async function authenticateUser(
   ctx: QueryCtx | MutationCtx,
@@ -61,6 +61,43 @@ export const list = query({
       summaryName: p.summaryName,
       objective: p.objective,
       targetDate: p.targetDate,
+      isOwner: p.ownerId === user._id,
+    }));
+  },
+});
+
+export const listWithTasks = query({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    const user = await authenticateUser(ctx, args.token);
+
+    const owned = await ctx.db
+      .query("projects")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", user._id))
+      .collect();
+
+    const shares = await ctx.db
+      .query("projectShares")
+      .withIndex("by_userId", (q) => q.eq("userId", user._id))
+      .collect();
+
+    const shared: Array<Doc<"projects">> = [];
+    const ownedIds = new Set(owned.map((p) => p._id));
+
+    for (const share of shares) {
+      if (ownedIds.has(share.projectId)) continue;
+      const project = await ctx.db.get(share.projectId);
+      if (project) shared.push(project);
+    }
+
+    const all = [...owned, ...shared];
+
+    return all.map((p) => ({
+      _id: p._id,
+      slug: p.slug,
+      projectName: p.projectName,
+      summaryName: p.summaryName,
+      data: p.data,
       isOwner: p.ownerId === user._id,
     }));
   },
@@ -294,6 +331,138 @@ export const unshare = mutation({
     if (shareRecord) {
       await ctx.db.delete(shareRecord._id);
     }
+
+    return { ok: true as const };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Projects page
+// ---------------------------------------------------------------------------
+
+async function getAccessibleProjects(
+  ctx: QueryCtx,
+  userId: Id<"users">,
+): Promise<Array<Doc<"projects">>> {
+  const owned = await ctx.db
+    .query("projects")
+    .withIndex("by_ownerId", (q) => q.eq("ownerId", userId))
+    .collect();
+
+  const shares = await ctx.db
+    .query("projectShares")
+    .withIndex("by_userId", (q) => q.eq("userId", userId))
+    .collect();
+
+  const shared: Array<Doc<"projects">> = [];
+  const ownedIds = new Set(owned.map((p) => p._id));
+
+  for (const share of shares) {
+    if (ownedIds.has(share.projectId)) continue;
+    const project = await ctx.db.get(share.projectId);
+    if (project) shared.push(project);
+  }
+
+  return [...owned, ...shared];
+}
+
+export const listForPage = query({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    const user = await authenticateUser(ctx, args.token);
+    const all = await getAccessibleProjects(ctx, user._id);
+
+    const now = Date.now();
+    const results = [];
+
+    for (const p of all) {
+      let totalTasks = 0;
+      let completedTasks = 0;
+
+      try {
+        const parsed = JSON.parse(p.data);
+        const wbs = parsed.project_wbs || [];
+        for (const phase of wbs) {
+          for (const task of phase.tasks || []) {
+            totalTasks++;
+            if (task.date) {
+              const taskTime = new Date(task.date).getTime();
+              if (!isNaN(taskTime) && taskTime <= now) completedTasks++;
+            }
+          }
+        }
+      } catch {
+        // data may not be valid JSON yet
+      }
+
+      const collaboratorEmails: Array<string> = [];
+      for (const uid of p.sharedWith) {
+        const u = await ctx.db.get(uid);
+        if (u) collaboratorEmails.push(u.email);
+      }
+
+      results.push({
+        _id: p._id,
+        slug: p.slug,
+        projectName: p.projectName,
+        summaryName: p.summaryName,
+        pinned: p.pinned ?? false,
+        updatedAt: p.updatedAt,
+        createdAt: p.createdAt,
+        isOwner: p.ownerId === user._id,
+        totalTasks,
+        completedTasks,
+        collaboratorEmails,
+      });
+    }
+
+    return results;
+  },
+});
+
+export const togglePin = mutation({
+  args: {
+    token: v.string(),
+    projectId: v.id("projects"),
+  },
+  handler: async (ctx, args) => {
+    const user = await authenticateUser(ctx, args.token);
+    const project = await ctx.db.get(args.projectId);
+
+    if (!project) throw new Error("Not found");
+    if (
+      project.ownerId !== user._id &&
+      !project.sharedWith.includes(user._id)
+    ) {
+      throw new Error("Not authorized");
+    }
+
+    await ctx.db.patch(args.projectId, {
+      pinned: !(project.pinned ?? false),
+    });
+
+    return { ok: true as const };
+  },
+});
+
+export const rename = mutation({
+  args: {
+    token: v.string(),
+    projectId: v.id("projects"),
+    projectName: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const user = await authenticateUser(ctx, args.token);
+    const project = await ctx.db.get(args.projectId);
+
+    if (!project || project.ownerId !== user._id) {
+      throw new Error("Not found or not authorized");
+    }
+
+    await ctx.db.patch(args.projectId, {
+      projectName: args.projectName,
+      updatedAt: Date.now(),
+    });
 
     return { ok: true as const };
   },

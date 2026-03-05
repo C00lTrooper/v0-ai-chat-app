@@ -1,13 +1,12 @@
 "use client";
 
 import { useRef, useEffect, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useProjectChat } from "@/hooks/use-project-chat";
 import { ChatHeader, type AppTab } from "@/components/chat-header";
 import { ChatMessage } from "@/components/chat-message";
 import { ChatInput } from "@/components/chat-input";
 import { ChatEmpty } from "@/components/chat-empty";
-import { ProjectsView } from "@/components/projects-view";
 import { CalendarView } from "@/components/calendar-view";
 import { SettingsDebug } from "@/components/settings-debug";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -18,11 +17,22 @@ import type { Id } from "@/convex/_generated/dataModel";
 
 export default function ChatPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { isAuthenticated } = useAuth();
   const [activeTab, setActiveTab] = useState<AppTab>("chat");
+
+  const initialProjectId = searchParams.get("projectId");
   const [activeProjectId, setActiveProjectId] = useState<Id<"projects"> | null>(
-    null,
+    initialProjectId ? (initialProjectId as Id<"projects">) : null,
   );
+  const [useClaudeFirstPrompt, setUseClaudeFirstPrompt] = useState(false);
+
+  useEffect(() => {
+    const projectIdParam = searchParams.get("projectId");
+    if (projectIdParam) {
+      setActiveProjectId(projectIdParam as Id<"projects">);
+    }
+  }, [searchParams]);
 
   const handleProjectCreated = useCallback(
     (projectId: Id<"projects">, _slug: string) => {
@@ -35,6 +45,7 @@ export default function ChatPage() {
     useProjectChat({
       activeProjectId,
       onProjectCreated: handleProjectCreated,
+      useClaudeFirstPrompt,
     });
 
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -50,6 +61,24 @@ export default function ChatPage() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = window.localStorage.getItem("useClaudeFirstPrompt");
+    if (stored !== null) {
+      setUseClaudeFirstPrompt(stored === "true");
+    }
+  }, []);
+
+  const handleUseClaudeFirstPromptChange = useCallback((value: boolean) => {
+    setUseClaudeFirstPrompt(value);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(
+        "useClaudeFirstPrompt",
+        value ? "true" : "false",
+      );
+    }
+  }, []);
 
   useEffect(() => {
     const el = bottomRef.current;
@@ -85,15 +114,14 @@ export default function ChatPage() {
 
   const handleNewChat = useCallback(() => {
     setActiveProjectId(null);
-  }, []);
+    if (searchParams.get("projectId")) {
+      router.replace("/", { scroll: false });
+    }
+  }, [searchParams, router]);
 
-  const handleOpenProjectChat = useCallback(
-    (projectId: Id<"projects">) => {
-      setActiveProjectId(projectId);
-      setActiveTab("chat");
-    },
-    [],
-  );
+  const handleTabChange = useCallback((tab: AppTab) => {
+    setActiveTab(tab);
+  }, []);
 
   if (!isAuthenticated) {
     return null;
@@ -104,17 +132,13 @@ export default function ChatPage() {
       <div className="flex h-dvh flex-col bg-background">
         <ChatHeader
           activeTab={activeTab}
-          onTabChange={setActiveTab}
+          onTabChange={handleTabChange}
           hasMessages={messages.length > 0}
           onClear={handleNewChat}
         />
 
-        {activeTab === "projects" ? (
-          <div className="flex-1 pt-14">
-            <ProjectsView onOpenChat={handleOpenProjectChat} />
-          </div>
-        ) : activeTab === "calendar" ? (
-          <div className="flex-1 overflow-auto">
+        {activeTab === "calendar" ? (
+          <div className="flex-1 overflow-hidden pt-14">
             <CalendarView />
           </div>
         ) : (
@@ -164,6 +188,8 @@ export default function ChatPage() {
         isLoading={isLoading}
         error={error}
         onClear={handleNewChat}
+        useClaudeFirstPrompt={useClaudeFirstPrompt}
+        onUseClaudeFirstPromptChange={handleUseClaudeFirstPromptChange}
       />
     </>
   );

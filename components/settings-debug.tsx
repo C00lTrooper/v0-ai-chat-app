@@ -13,6 +13,8 @@ import {
 } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 
 interface SettingsDebugProps {
@@ -20,6 +22,8 @@ interface SettingsDebugProps {
   isLoading: boolean;
   error: string | null;
   onClear: () => void;
+  useClaudeFirstPrompt: boolean;
+  onUseClaudeFirstPromptChange: (value: boolean) => void;
 }
 
 export function SettingsDebug({
@@ -27,6 +31,8 @@ export function SettingsDebug({
   isLoading,
   error,
   onClear,
+  useClaudeFirstPrompt,
+  onUseClaudeFirstPromptChange,
 }: SettingsDebugProps) {
   const hasMessages = messages.length > 0;
   const recentMessages = messages.slice(-5).reverse();
@@ -91,6 +97,28 @@ export function SettingsDebug({
                 </dd>
               </div>
             </dl>
+          </section>
+
+          <section className="rounded-md border border-border bg-muted/40 px-3 py-2.5 text-xs">
+            <h3 className="text-[0.7rem] font-semibold uppercase tracking-wide text-muted-foreground">
+              Model settings
+            </h3>
+            <div className="mt-2 flex items-center justify-between gap-3">
+              <Label
+                htmlFor="claude-first-prompt"
+                className="text-[0.7rem] text-muted-foreground"
+              >
+                Use Claude Opus 4.5 for first prompt
+              </Label>
+              <Switch
+                id="claude-first-prompt"
+                checked={useClaudeFirstPrompt}
+                onCheckedChange={onUseClaudeFirstPromptChange}
+              />
+            </div>
+            <p className="mt-1 text-[0.7rem] text-muted-foreground/80">
+              When enabled, the very first message in a new chat runs on Claude Opus 4.5. Follow-ups stay on Gemini.
+            </p>
           </section>
 
           <section className="space-y-2">

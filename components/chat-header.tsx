@@ -4,7 +4,6 @@ import { useTheme } from "next-themes";
 import { useRouter } from "next/navigation";
 import {
   CalendarDays,
-  FolderOpen,
   LogOut,
   MessageSquare,
   RotateCcw,
@@ -25,10 +24,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/components/auth-provider";
 
-export type AppTab = "chat" | "projects" | "calendar";
+export type AppTab = "chat" | "calendar";
 
 interface ChatHeaderProps {
-  activeTab: AppTab;
+  activeTab?: AppTab;
   onTabChange: (tab: AppTab) => void;
   hasMessages: boolean;
   onClear: () => void;
@@ -55,11 +54,11 @@ export function ChatHeader({
           <Button
             variant="ghost"
             size="icon-sm"
-            className="text-black"
-            onClick={() => router.push("/")}
+            className="text-foreground"
+            onClick={() => router.push("/projects")}
           >
             <Home className="size-5" />
-            <span className="sr-only">Go home</span>
+            <span className="sr-only">Projects</span>
           </Button>
         </div>
       </div>
@@ -85,10 +84,6 @@ export function ChatHeader({
             <TabsTrigger value="chat" className="gap-1.5 px-3 text-xs">
               <MessageSquare className="size-3.5" />
               Chat
-            </TabsTrigger>
-            <TabsTrigger value="projects" className="gap-1.5 px-3 text-xs">
-              <FolderOpen className="size-3.5" />
-              Projects
             </TabsTrigger>
             <TabsTrigger value="calendar" className="gap-1.5 px-3 text-xs">
               <CalendarDays className="size-3.5" />
