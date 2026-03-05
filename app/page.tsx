@@ -1,8 +1,8 @@
 "use client";
 
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { useChat } from "@/hooks/use-chat";
+import { useProjectChat } from "@/hooks/use-project-chat";
 import { ChatHeader, type AppTab } from "@/components/chat-header";
 import { ChatMessage } from "@/components/chat-message";
 import { ChatInput } from "@/components/chat-input";
@@ -12,22 +12,31 @@ import { CalendarView } from "@/components/calendar-view";
 import { SettingsDebug } from "@/components/settings-debug";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ChatControls } from "@/components/chat-controls";
-import { ChatQuickButtons } from "@/components/chat-quick-buttons";
 import { AlertCircle } from "lucide-react";
 import { useAuth } from "@/components/auth-provider";
+import type { Id } from "@/convex/_generated/dataModel";
 
 export default function ChatPage() {
   const router = useRouter();
   const { isAuthenticated } = useAuth();
   const [activeTab, setActiveTab] = useState<AppTab>("chat");
-  const {
-    messages,
-    isLoading,
-    error,
-    sendMessage,
-    stopGeneration,
-    clearMessages,
-  } = useChat();
+  const [activeProjectId, setActiveProjectId] = useState<Id<"projects"> | null>(
+    null,
+  );
+
+  const handleProjectCreated = useCallback(
+    (projectId: Id<"projects">, _slug: string) => {
+      setActiveProjectId(projectId);
+    },
+    [],
+  );
+
+  const { messages, isLoading, error, sendMessage, stopGeneration } =
+    useProjectChat({
+      activeProjectId,
+      onProjectCreated: handleProjectCreated,
+    });
+
   const bottomRef = useRef<HTMLDivElement>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [hasProjectOverview, setHasProjectOverview] = useState(false);
@@ -42,7 +51,6 @@ export default function ChatPage() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Track whether the bottom of the chat is visible
   useEffect(() => {
     const el = bottomRef.current;
     if (!el) return;
@@ -52,18 +60,13 @@ export default function ChatPage() {
         const entry = entries[0];
         setIsAtBottom(entry.isIntersecting);
       },
-      {
-        root: null,
-        threshold: 0.25,
-      },
+      { root: null, threshold: 0.25 },
     );
 
     observer.observe(el);
-
     return () => observer.disconnect();
   }, [messages]);
 
-  // Track whether we have a structured project overview in the chat
   useEffect(() => {
     if (typeof document === "undefined") return;
     const el = document.querySelector("[data-project-overview]");
@@ -80,6 +83,18 @@ export default function ChatPage() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
+  const handleNewChat = useCallback(() => {
+    setActiveProjectId(null);
+  }, []);
+
+  const handleOpenProjectChat = useCallback(
+    (projectId: Id<"projects">) => {
+      setActiveProjectId(projectId);
+      setActiveTab("chat");
+    },
+    [],
+  );
+
   if (!isAuthenticated) {
     return null;
   }
@@ -91,12 +106,12 @@ export default function ChatPage() {
           activeTab={activeTab}
           onTabChange={setActiveTab}
           hasMessages={messages.length > 0}
-          onClear={clearMessages}
+          onClear={handleNewChat}
         />
 
         {activeTab === "projects" ? (
           <div className="flex-1 pt-14">
-            <ProjectsView />
+            <ProjectsView onOpenChat={handleOpenProjectChat} />
           </div>
         ) : activeTab === "calendar" ? (
           <div className="flex-1 overflow-auto">
@@ -148,7 +163,7 @@ export default function ChatPage() {
         messages={messages}
         isLoading={isLoading}
         error={error}
-        onClear={clearMessages}
+        onClear={handleNewChat}
       />
     </>
   );

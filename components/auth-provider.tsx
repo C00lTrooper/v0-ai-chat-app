@@ -7,12 +7,13 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { ConvexHttpClient } from "convex/browser";
+import { convexClient } from "@/lib/convex";
 import { api } from "@/convex/_generated/api";
 
 type AuthContextValue = {
   isAuthenticated: boolean;
   userEmail: string | null;
+  sessionToken: string | null;
   login: (email: string, password: string) => Promise<void>;
   signup: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -21,16 +22,6 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 const STORAGE_SESSION_KEY = "app_convex_session_token";
-
-const convexUrl =
-  typeof process !== "undefined"
-    ? process.env.NEXT_PUBLIC_CONVEX_URL
-    : undefined;
-
-const client =
-  typeof window !== "undefined" && convexUrl
-    ? new ConvexHttpClient(convexUrl)
-    : null;
 
 async function hashPassword(password: string): Promise<string> {
   const enc = new TextEncoder();
@@ -46,9 +37,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
 
   useEffect(() => {
-    if (typeof window === "undefined" || !client) {
+    if (typeof window === "undefined" || !convexClient) {
       setIsReady(true);
       return;
     }
@@ -61,10 +53,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     void (async () => {
       try {
-        const session = await client.query(api.auth.getSession, { token });
+        const session = await convexClient.query(api.auth.getSession, {
+          token,
+        });
         if (session) {
           setIsAuthenticated(true);
           setUserEmail(session.email);
+          setSessionToken(token);
         } else {
           window.localStorage.removeItem(STORAGE_SESSION_KEY);
         }
@@ -75,12 +70,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = async (email: string, password: string) => {
-    if (!client) {
+    if (!convexClient) {
       throw new Error("Convex client is not configured");
     }
 
     const passwordHash = await hashPassword(password);
-    const result = await client.mutation(api.auth.loginWithPassword, {
+    const result = await convexClient.mutation(api.auth.loginWithPassword, {
       email,
       passwordHash,
     });
@@ -95,15 +90,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     setIsAuthenticated(true);
     setUserEmail(result.email);
+    setSessionToken(result.token);
   };
 
   const signup = async (email: string, password: string) => {
-    if (!client) {
+    if (!convexClient) {
       throw new Error("Convex client is not configured");
     }
 
     const passwordHash = await hashPassword(password);
-    const result = await client.mutation(api.auth.signup, {
+    const result = await convexClient.mutation(api.auth.signup, {
       email,
       passwordHash,
     });
@@ -118,19 +114,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     setIsAuthenticated(true);
     setUserEmail(result.email);
+    setSessionToken(result.token);
   };
 
   const logout = async () => {
     if (typeof window === "undefined") {
       setIsAuthenticated(false);
       setUserEmail(null);
+      setSessionToken(null);
       return;
     }
 
     const token = window.localStorage.getItem(STORAGE_SESSION_KEY);
-    if (client && token) {
+    if (convexClient && token) {
       try {
-        await client.mutation(api.auth.logout, { token });
+        await convexClient.mutation(api.auth.logout, { token });
       } catch {
         // ignore logout errors
       }
@@ -139,11 +137,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.localStorage.removeItem(STORAGE_SESSION_KEY);
     setIsAuthenticated(false);
     setUserEmail(null);
+    setSessionToken(null);
   };
 
   return (
     <AuthContext.Provider
-      value={{ isAuthenticated, userEmail, login, signup, logout }}
+      value={{
+        isAuthenticated,
+        userEmail,
+        sessionToken,
+        login,
+        signup,
+        logout,
+      }}
     >
       {isReady ? children : null}
     </AuthContext.Provider>
@@ -157,4 +163,3 @@ export function useAuth() {
   }
   return ctx;
 }
-

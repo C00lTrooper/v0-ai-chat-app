@@ -17,10 +17,12 @@ export const ProjectSchema = z.object({
         description: z.string().min(1),
         start_date: z.string().min(1),
         end_date: z.string().min(1),
-        subtasks: z.array(
+        tasks: z.array(
           z.object({
             order: z.number().int().nonnegative(),
             name: z.string().min(1),
+            date: z.string().min(1),
+            time: z.string().min(1),
           })
         ),
       })

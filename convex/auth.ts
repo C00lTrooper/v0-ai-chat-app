@@ -150,3 +150,95 @@ export const logout = mutation({
   },
 });
 
+export const deleteAccount = mutation({
+  args: {
+    token: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const session = await ctx.db
+      .query("sessions")
+      .withIndex("by_token", (q) => q.eq("token", args.token))
+      .unique();
+
+    if (!session || session.expiresAt <= Date.now()) {
+      throw new Error("Unauthenticated");
+    }
+
+    const user = await ctx.db.get("users", session.userId);
+    if (!user) {
+      return { ok: true as const };
+    }
+
+    // Delete all sessions for this user
+    const sessions = await ctx.db
+      .query("sessions")
+      .withIndex("by_userId", (q) => q.eq("userId", user._id))
+      .collect();
+    for (const s of sessions) {
+      await ctx.db.delete(s._id);
+    }
+
+    // Delete all projects owned by this user (and their related data)
+    const ownedProjects = await ctx.db
+      .query("projects")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", user._id))
+      .collect();
+
+    for (const project of ownedProjects) {
+      // Delete chats and messages for this project
+      const chats = await ctx.db
+        .query("chats")
+        .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
+        .collect();
+
+      for (const chat of chats) {
+        const messages = await ctx.db
+          .query("chatMessages")
+          .withIndex("by_chatId", (q) => q.eq("chatId", chat._id))
+          .collect();
+
+        for (const msg of messages) {
+          await ctx.db.delete(msg._id);
+        }
+
+        await ctx.db.delete(chat._id);
+      }
+
+      // Delete all share records for this project
+      const shares = await ctx.db
+        .query("projectShares")
+        .withIndex("by_projectId_and_userId", (q) =>
+          q.eq("projectId", project._id),
+        )
+        .collect();
+
+      for (const share of shares) {
+        await ctx.db.delete(share._id);
+      }
+
+      await ctx.db.delete(project._id);
+    }
+
+    // Remove user from projects shared with them
+    const membershipShares = await ctx.db
+      .query("projectShares")
+      .withIndex("by_userId", (q) => q.eq("userId", user._id))
+      .collect();
+
+    for (const share of membershipShares) {
+      const project = await ctx.db.get("projects", share.projectId);
+      if (project) {
+        await ctx.db.patch(project._id, {
+          sharedWith: project.sharedWith.filter((id) => id !== user._id),
+        });
+      }
+      await ctx.db.delete(share._id);
+    }
+
+    // Finally delete the user document
+    await ctx.db.delete(user._id);
+
+    return { ok: true as const };
+  },
+});
+

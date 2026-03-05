@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import { ChatHeader, type AppTab } from "@/components/chat-header";
@@ -13,10 +13,24 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { convexClient } from "@/lib/convex";
+import { api } from "@/convex/_generated/api";
 
 export default function AccountPage() {
   const router = useRouter();
-  const { isAuthenticated, userEmail } = useAuth();
+  const { isAuthenticated, userEmail, sessionToken, logout } = useAuth();
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -73,6 +87,55 @@ export default function AccountPage() {
                   <Badge variant="outline" className="text-xs">
                     Signed in
                   </Badge>
+                </div>
+                <div className="pt-2">
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full justify-center border-destructive/60 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      >
+                        Delete account
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>
+                          Delete your account?
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This will permanently delete your projects, chats,
+                          and access to shared projects. This action cannot be
+                          undone.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel disabled={isDeleting}>
+                          Cancel
+                        </AlertDialogCancel>
+                        <AlertDialogAction
+                          disabled={isDeleting}
+                          onClick={async () => {
+                            if (!sessionToken || !convexClient) return;
+                            setIsDeleting(true);
+                            try {
+                              await convexClient.mutation(
+                                api.auth.deleteAccount,
+                                { token: sessionToken },
+                              );
+                            } finally {
+                              setIsDeleting(false);
+                              await logout();
+                              router.replace("/login");
+                            }
+                          }}
+                        >
+                          Delete account
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 </div>
               </CardContent>
             </Card>

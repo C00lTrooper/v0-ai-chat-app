@@ -20,10 +20,12 @@
       "description": "string",
       "start_date": "date",
       "end_date": "date",
-      "subtasks": [
+      "tasks": [
         {
           "order": "integer",
-          "name": "string"
+          "name": "string",
+          "date": "date",
+          "time": "time"
         }
       ]
     }

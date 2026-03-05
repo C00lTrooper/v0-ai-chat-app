@@ -48,7 +48,7 @@ export function ProjectWbs({ project }: ProjectWbsProps) {
 
               <Table>
                 <TableBody>
-                  {phase.subtasks.map((task) => {
+                  {phase.tasks?.map((task) => {
                     const label = `${phaseIndex + 1}.${task.order}`;
                     // Placeholder: all tasks start as planned (not yet completed).
                     const isCompleted = false;
@@ -62,7 +62,7 @@ export function ProjectWbs({ project }: ProjectWbsProps) {
                           {task.name}
                         </TableCell>
                         <TableCell className="w-40 text-right text-muted-foreground">
-                          {formatDate(phase.end_date)}
+                          {`${formatDate(task.date)} ${task.time}`}
                         </TableCell>
                         <TableCell className="w-6 text-right">
                           {isCompleted ? (

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { FolderOpen, Calendar, ExternalLink } from "lucide-react";
+import { FolderOpen, Calendar, ExternalLink, MessageSquare } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -20,44 +20,61 @@ import {
 } from "@/components/ui/empty";
 import { Spinner } from "@/components/ui/spinner";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useAuth } from "@/components/auth-provider";
+import { convexClient } from "@/lib/convex";
+import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 
 type ProjectMeta = {
+  _id: string;
   slug: string;
-  project_name: string;
-  summary_name: string;
+  projectName: string;
+  summaryName: string;
   objective: string;
-  target_date: string;
+  targetDate: string;
+  isOwner: boolean;
 };
 
-export function ProjectsView() {
+interface ProjectsViewProps {
+  onOpenChat?: (projectId: Id<"projects">) => void;
+}
+
+export function ProjectsView({ onOpenChat }: ProjectsViewProps) {
+  const { sessionToken } = useAuth();
   const [projects, setProjects] = useState<ProjectMeta[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!sessionToken || !convexClient) {
+      setLoading(false);
+      return;
+    }
+
     let cancelled = false;
     setLoading(true);
     setError(null);
-    fetch("/api/projects")
-      .then((res) => res.json())
-      .then((data) => {
-        if (cancelled) return;
-        if (data.ok && Array.isArray(data.projects)) {
-          setProjects(data.projects);
-        } else {
-          setError(data.error ?? "Failed to load projects");
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err?.message ?? "Failed to load projects");
-      })
-      .finally(() => {
+
+    void (async () => {
+      try {
+        const result = await convexClient.query(api.projects.list, {
+          token: sessionToken,
+        });
+        if (!cancelled) setProjects(result);
+      } catch (err) {
+        if (!cancelled)
+          setError(
+            err instanceof Error ? err.message : "Failed to load projects",
+          );
+      } finally {
         if (!cancelled) setLoading(false);
-      });
+      }
+    })();
+
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [sessionToken]);
 
   if (loading) {
     return (
@@ -97,25 +114,40 @@ export function ProjectsView() {
     <ScrollArea className="flex-1">
       <div className="mx-auto max-w-3xl space-y-4 p-4">
         {projects.map((p) => (
-          <Card key={p.slug} className="transition-shadow hover:shadow-md">
+          <Card key={p._id} className="transition-shadow hover:shadow-md">
             <CardHeader className="pb-2">
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0 flex-1">
                   <CardTitle className="truncate text-base">
-                    {p.project_name || p.summary_name}
+                    {p.projectName || p.summaryName}
                   </CardTitle>
-                  {p.summary_name && p.summary_name !== p.project_name && (
+                  {p.summaryName && p.summaryName !== p.projectName && (
                     <CardDescription className="mt-0.5 truncate">
-                      {p.summary_name}
+                      {p.summaryName}
                     </CardDescription>
                   )}
                 </div>
-                <Button variant="outline" size="sm" asChild>
-                  <Link href={`/projects/${p.slug}`} className="gap-1.5">
-                    View
-                    <ExternalLink className="size-3.5" />
-                  </Link>
-                </Button>
+                <div className="flex items-center gap-1.5">
+                  {onOpenChat && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="gap-1.5"
+                      onClick={() =>
+                        onOpenChat(p._id as Id<"projects">)
+                      }
+                    >
+                      <MessageSquare className="size-3.5" />
+                      Chat
+                    </Button>
+                  )}
+                  <Button variant="outline" size="sm" asChild>
+                    <Link href={`/projects/${p.slug}`} className="gap-1.5">
+                      View
+                      <ExternalLink className="size-3.5" />
+                    </Link>
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="space-y-2 pt-0">
@@ -124,11 +156,16 @@ export function ProjectsView() {
                   {p.objective}
                 </p>
               )}
-              {p.target_date && (
+              {p.targetDate && (
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <Calendar className="size-3.5" />
-                  Target: {p.target_date}
+                  Target: {p.targetDate}
                 </div>
+              )}
+              {!p.isOwner && (
+                <span className="inline-block rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                  Shared with you
+                </span>
               )}
             </CardContent>
           </Card>
