@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
-import { ChatHeader, type AppTab } from "@/components/chat-header";
+import { ChatHeader } from "@/components/chat-header";
 import {
   Card,
   CardContent,
@@ -44,16 +44,7 @@ export default function AccountPage() {
 
   return (
     <div className="min-h-dvh bg-background">
-      <ChatHeader
-        activeTab="chat"
-        onTabChange={(tab: AppTab) => {
-          // For now, any tab click just returns to the main app,
-          // which controls the actual tab content.
-          router.push("/");
-        }}
-        hasMessages={false}
-        onClear={() => {}}
-      />
+      <ChatHeader hasMessages={false} onClear={() => {}} />
       <main className="px-4 pt-16 pb-16">
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
           <div>

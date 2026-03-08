@@ -4,9 +4,6 @@ import { useState, useCallback, useRef, useMemo, useEffect } from "react"
 import { useQuery, useMutation } from "convex/react"
 import { api } from "@/convex/_generated/api"
 import { useAuth } from "@/components/auth-provider"
-import { convexClient } from "@/lib/convex"
-import { extractFirstJsonObject } from "@/lib/parse-project-json"
-import { ProjectSchema } from "@/lib/project-schema"
 import type { Id } from "@/convex/_generated/dataModel"
 
 export interface Message {
@@ -16,36 +13,29 @@ export interface Message {
   reasoning?: string
 }
 
-function slugify(name: string, fallback: string): string {
-  return (
-    name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "") || fallback
-  )
-}
-
 export function useProjectChat({
-  activeProjectId,
-  onProjectCreated,
+  activeChatId,
+  projectToLink,
+  onProjectLinked,
   useClaudeFirstPrompt,
 }: {
-  activeProjectId: Id<"projects"> | null
-  onProjectCreated: (projectId: Id<"projects">, slug: string) => void
+  activeChatId: Id<"chats"> | null
+  projectToLink: Id<"projects"> | null
+  onProjectLinked: (chatId: Id<"chats">) => void
   useClaudeFirstPrompt: boolean
 }) {
   const { sessionToken } = useAuth()
-  const hasCreatedProjectRef = useRef(false)
 
-  // ---- Convex real-time query (active when a project is selected) --------
   const chatData = useQuery(
-    api.chats.listByProject,
-    activeProjectId && sessionToken
-      ? { token: sessionToken, projectId: activeProjectId }
+    api.chats.getChatWithMessages,
+    activeChatId && sessionToken
+      ? { token: sessionToken, chatId: activeChatId }
       : "skip",
   )
 
   const sendMessageMutation = useMutation(api.chats.sendMessage)
+  const createChatMutation = useMutation(api.chats.createChat)
+  const renameChatMutation = useMutation(api.chats.renameChat)
 
   // ---- Local state for new-project chat (before project exists) ----------
   const [localMessages, setLocalMessages] = useState<Message[]>([])
@@ -54,7 +44,6 @@ export function useProjectChat({
   const [error, setError] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
-  // Reset local state when switching projects
   useEffect(() => {
     setLocalMessages([])
     setStreamingMessage(null)
@@ -62,33 +51,25 @@ export function useProjectChat({
     setIsLoading(false)
     abortRef.current?.abort()
     abortRef.current = null
-    // When starting a brand new chat (no active project), allow one project creation again
-    if (!activeProjectId) {
-      hasCreatedProjectRef.current = false
-    }
-  }, [activeProjectId])
+  }, [activeChatId])
 
-  // ---- Combined messages -------------------------------------------------
   const messages: Message[] = useMemo(() => {
     let base: Message[]
-
-    if (activeProjectId && chatData) {
+    if (activeChatId && chatData) {
       base = chatData.messages.map((m) => ({
         id: m._id,
         role: m.role as "user" | "assistant",
         content: m.content,
         reasoning: m.reasoning ?? undefined,
       }))
-    } else if (activeProjectId) {
-      // Query still loading — show nothing yet
+    } else if (activeChatId) {
       base = []
     } else {
       base = localMessages
     }
-
     if (streamingMessage) return [...base, streamingMessage]
     return base
-  }, [activeProjectId, chatData, localMessages, streamingMessage])
+  }, [activeChatId, chatData, localMessages, streamingMessage])
 
   // ---- Streaming helper --------------------------------------------------
   async function streamResponse(
@@ -105,8 +86,10 @@ export function useProjectChat({
     })
 
     if (!response.ok) {
-      const errorData = await response.json()
-      throw new Error(errorData.error || "Failed to send message")
+      const errorData = await response.json().catch(() => ({}))
+      const message = errorData.error || "Failed to send message"
+      const details = errorData.details ? ` ${errorData.details}` : ""
+      throw new Error(message + details)
     }
 
     const reader = response.body?.getReader()
@@ -152,22 +135,27 @@ export function useProjectChat({
     return { fullContent, fullReasoning }
   }
 
-  // ---- Send a message ----------------------------------------------------
   const sendMessage = useCallback(
     async (content: string) => {
       if (!sessionToken) return
 
-      const isNewProjectChat = !activeProjectId
-      const isFirstExchange =
-        isNewProjectChat &&
-        !hasCreatedProjectRef.current &&
-        localMessages.length === 0
+      const wasEmptyChat =
+        activeChatId && (chatData?.messages.length ?? 0) === 0
 
-      // 1. Persist user message (or queue locally)
-      if (activeProjectId) {
+      let effectiveChatId: Id<"chats"> | null = activeChatId
+
+      if (!effectiveChatId && projectToLink) {
+        const { chatId } = await createChatMutation({
+          token: sessionToken,
+          projectId: projectToLink,
+        })
+        effectiveChatId = chatId
+      }
+
+      if (effectiveChatId) {
         await sendMessageMutation({
           token: sessionToken,
-          projectId: activeProjectId,
+          chatId: effectiveChatId,
           role: "user",
           content,
         })
@@ -178,28 +166,22 @@ export function useProjectChat({
         ])
       }
 
-      // 2. Prepare streaming placeholder
       setIsLoading(true)
       setError(null)
-
       const streamId = crypto.randomUUID()
       setStreamingMessage({ id: streamId, role: "assistant", content: "", reasoning: "" })
-
       const abortController = new AbortController()
       abortRef.current = abortController
 
       try {
-        // Build the message history for the API
-        const history: Array<{ role: string; content: string }> = activeProjectId
-          ? (chatData?.messages ?? []).map((m) => ({
-              role: m.role,
-              content: m.content,
-            }))
-          : localMessages.map((m) => ({ role: m.role, content: m.content }))
-
+        const history: Array<{ role: string; content: string }> =
+          effectiveChatId && chatData
+            ? chatData.messages.map((m) => ({ role: m.role, content: m.content }))
+            : effectiveChatId
+              ? []
+              : localMessages.map((m) => ({ role: m.role, content: m.content }))
         const apiMessages = [...history, { role: "user" as const, content }]
 
-        // 3. Stream the AI response
         const { fullContent, fullReasoning } = await streamResponse(
           apiMessages,
           abortController.signal,
@@ -218,83 +200,46 @@ export function useProjectChat({
           useClaudeFirstPrompt,
         )
 
-        // 4. Persist results
-        if (activeProjectId) {
-          // Active project — save assistant response
+        if (effectiveChatId) {
           await sendMessageMutation({
             token: sessionToken,
-            projectId: activeProjectId,
+            chatId: effectiveChatId,
             role: "assistant",
             content: fullContent,
             reasoning: fullReasoning || undefined,
           })
-        } else if (
-          isFirstExchange &&
-          !hasCreatedProjectRef.current &&
-          fullContent.trim() &&
-          convexClient
-        ) {
-          // New-project flow — create project, then persist both messages
-          try {
-            const raw = extractFirstJsonObject(fullContent)
-            const validated = ProjectSchema.safeParse(raw)
-
-            if (validated.success) {
-              const project = validated.data
-              const slug = slugify(
-                project.project_name || project.project_summary.name,
-                `project-${Date.now()}`,
-              )
-
-              const result = await convexClient.mutation(api.projects.create, {
-                token: sessionToken,
-                slug,
-                projectName: project.project_name,
-                summaryName: project.project_summary.name,
-                objective: project.project_summary.objective,
-                targetDate: project.project_summary.target_date,
-                data: JSON.stringify(project),
+          if (projectToLink && !activeChatId) {
+            onProjectLinked(effectiveChatId)
+          }
+          const isFirstMessage =
+            (projectToLink && !activeChatId) || wasEmptyChat
+          if (isFirstMessage && content.trim()) {
+            try {
+              const titleRes = await fetch("/api/generate-chat-title", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ message: content }),
               })
-
-              // Persist the conversation into the new project's chat
-              await sendMessageMutation({
-                token: sessionToken,
-                projectId: result.projectId,
-                role: "user",
-                content,
-              })
-              await sendMessageMutation({
-                token: sessionToken,
-                projectId: result.projectId,
-                role: "assistant",
-                content: fullContent,
-                reasoning: fullReasoning || undefined,
-              })
-
-              onProjectCreated(result.projectId, result.slug)
-              hasCreatedProjectRef.current = true
-            } else {
-              setError("The AI response was not valid project JSON.")
-              setLocalMessages((prev) => [
-                ...prev,
-                { id: streamId, role: "assistant", content: fullContent, reasoning: fullReasoning },
-              ])
+              if (titleRes.ok) {
+                const { title } = (await titleRes.json()) as { title?: string }
+                if (title?.trim()) {
+                  await renameChatMutation({
+                    token: sessionToken,
+                    chatId: effectiveChatId,
+                    name: title.trim().slice(0, 80),
+                  })
+                }
+              }
+            } catch {
+              // ignore title failure
             }
-          } catch {
-            setError("Failed to save the project.")
-            setLocalMessages((prev) => [
-              ...prev,
-              { id: streamId, role: "assistant", content: fullContent, reasoning: fullReasoning },
-            ])
           }
         } else {
-          // Follow-up in a not-yet-saved chat
           setLocalMessages((prev) => [
             ...prev,
             { id: streamId, role: "assistant", content: fullContent, reasoning: fullReasoning },
           ])
         }
-
         setStreamingMessage(null)
       } catch (err) {
         if ((err as Error).name === "AbortError") {
@@ -309,12 +254,15 @@ export function useProjectChat({
       }
     },
     [
-      activeProjectId,
+      activeChatId,
+      projectToLink,
       sessionToken,
       chatData,
       localMessages,
       sendMessageMutation,
-      onProjectCreated,
+      createChatMutation,
+      renameChatMutation,
+      onProjectLinked,
       useClaudeFirstPrompt,
     ],
   )

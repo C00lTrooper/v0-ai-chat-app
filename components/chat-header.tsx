@@ -1,7 +1,8 @@
 "use client";
 
 import { useTheme } from "next-themes";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
+import Link from "next/link";
 import {
   CalendarDays,
   LogOut,
@@ -13,7 +14,6 @@ import {
   Home,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,25 +22,29 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useAuth } from "@/components/auth-provider";
 
-export type AppTab = "chat" | "calendar";
-
 interface ChatHeaderProps {
-  activeTab?: AppTab;
-  onTabChange: (tab: AppTab) => void;
   hasMessages: boolean;
   onClear: () => void;
+  projectName?: string;
 }
 
 export function ChatHeader({
-  activeTab,
-  onTabChange,
   hasMessages,
   onClear,
+  projectName,
 }: ChatHeaderProps) {
   const { resolvedTheme, setTheme } = useTheme();
   const router = useRouter();
+  const pathname = usePathname();
   const { logout, userEmail } = useAuth();
 
   const toggleTheme = () => {
@@ -49,21 +53,29 @@ export function ChatHeader({
 
   return (
     <header className="fixed left-0 right-0 top-0 z-30 flex h-14 shrink-0 items-center justify-between border-b border-border bg-background px-4">
-      <div className="flex items-center gap-4">
-        <div className="flex items-center gap-2.5">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="text-foreground"
-            onClick={() => router.push("/projects")}
-          >
-            <Home className="size-5" />
-            <span className="sr-only">Projects</span>
-          </Button>
-        </div>
+      <div className="flex min-w-0 items-center gap-2">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="shrink-0 text-foreground"
+          onClick={() => router.push("/projects")}
+        >
+          <Home className="size-5" />
+          <span className="sr-only">Projects</span>
+        </Button>
+        {projectName && (
+          <>
+            <span className="shrink-0 text-muted-foreground/70" aria-hidden>
+              \
+            </span>
+            <span className="truncate text-sm font-medium text-foreground">
+              {projectName}
+            </span>
+          </>
+        )}
       </div>
       <div className="flex min-w-[7rem] items-center justify-end gap-2">
-        {activeTab === "chat" && (
+        {pathname === "/chat" && (
           <Button
             variant="ghost"
             size="sm"
@@ -75,22 +87,71 @@ export function ChatHeader({
             New Chat
           </Button>
         )}
-        <Tabs
-          value={activeTab}
-          onValueChange={(v) => onTabChange(v as AppTab)}
-          className="w-auto"
-        >
-          <TabsList className="h-8">
-            <TabsTrigger value="chat" className="gap-1.5 px-3 text-xs">
-              <MessageSquare className="size-3.5" />
-              Chat
-            </TabsTrigger>
-            <TabsTrigger value="calendar" className="gap-1.5 px-3 text-xs">
-              <CalendarDays className="size-3.5" />
-              Calendar
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
+        <nav className="flex items-center gap-1" aria-label="App navigation">
+          <Select
+            value={
+              pathname === "/chat" || pathname === "/calendar"
+                ? pathname
+                : "/chat"
+            }
+            onValueChange={(value) => router.push(value)}
+          >
+            <SelectTrigger
+              size="sm"
+              className="h-8 min-w-[7.25rem] gap-1.5 rounded-lg border-border/60 bg-muted/40 px-2.5 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/60 md:hidden [&_svg]:text-muted-foreground"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent align="end" className="min-w-[7.25rem]">
+              <SelectItem value="/chat" className="cursor-pointer gap-2 py-2.5">
+                <MessageSquare className="size-4" />
+                Chat
+              </SelectItem>
+              <SelectItem value="/calendar" className="cursor-pointer gap-2 py-2.5">
+                <CalendarDays className="size-4" />
+                Calendar
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          <div className="hidden items-center gap-1 md:flex">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1.5 px-3 text-xs h-8 font-normal"
+              asChild
+            >
+              <Link
+                href="/chat"
+                className={
+                  pathname === "/chat"
+                    ? "text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }
+              >
+                <MessageSquare className="size-3.5" />
+                Chat
+              </Link>
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1.5 px-3 text-xs h-8 font-normal"
+              asChild
+            >
+              <Link
+                href="/calendar"
+                className={
+                  pathname === "/calendar"
+                    ? "text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }
+              >
+                <CalendarDays className="size-3.5" />
+                Calendar
+              </Link>
+            </Button>
+          </div>
+        </nav>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button

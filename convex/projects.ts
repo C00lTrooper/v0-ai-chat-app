@@ -132,6 +132,31 @@ export const getBySlug = query({
   },
 });
 
+export const getById = query({
+  args: { token: v.string(), projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    const user = await authenticateUser(ctx, args.token);
+
+    const project = await ctx.db.get(args.projectId);
+    if (!project) return null;
+
+    const isOwner = project.ownerId === user._id;
+    const isShared = project.sharedWith.includes(user._id);
+    if (!isOwner && !isShared) return null;
+
+    return {
+      _id: project._id,
+      slug: project.slug,
+      projectName: project.projectName,
+      summaryName: project.summaryName,
+      objective: project.objective,
+      targetDate: project.targetDate,
+      data: project.data,
+      isOwner,
+    };
+  },
+});
+
 // ---------------------------------------------------------------------------
 // Mutations
 // ---------------------------------------------------------------------------
@@ -369,7 +394,12 @@ async function getAccessibleProjects(
 export const listForPage = query({
   args: { token: v.string() },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    let user;
+    try {
+      user = await authenticateUser(ctx, args.token);
+    } catch {
+      return [];
+    }
     const all = await getAccessibleProjects(ctx, user._id);
 
     const now = Date.now();

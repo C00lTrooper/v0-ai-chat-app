@@ -142,7 +142,7 @@ export function ProjectsView({ onOpenChat }: ProjectsViewProps) {
                     </Button>
                   )}
                   <Button variant="outline" size="sm" asChild>
-                    <Link href={`/projects/${p.slug}`} className="gap-1.5">
+                    <Link href={`/projects/${p._id}`} className="gap-1.5">
                       View
                       <ExternalLink className="size-3.5" />
                     </Link>

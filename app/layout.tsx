@@ -4,6 +4,7 @@ import { Analytics } from "@vercel/analytics/next";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider } from "@/components/auth-provider";
 import { ConvexClientProvider } from "@/components/convex-client-provider";
+import { Toaster } from "@/components/ui/toaster";
 import "./globals.css";
 
 const _geist = Geist({ subsets: ["latin"] });
@@ -44,6 +45,7 @@ export default function RootLayout({
           <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
             <AuthProvider>
               {children}
+              <Toaster />
               <Analytics />
             </AuthProvider>
           </ThemeProvider>

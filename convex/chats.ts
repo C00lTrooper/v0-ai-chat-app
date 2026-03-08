@@ -53,7 +53,7 @@ export const listByProject = query({
     const chat = await ctx.db
       .query("chats")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
-      .unique();
+      .first();
 
     if (!chat) return { chatId: null, messages: [] };
 
@@ -76,43 +76,151 @@ export const listByProject = query({
   },
 });
 
+export const listChatsByProject = query({
+  args: { token: v.string(), projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    const user = await authenticateUser(ctx, args.token);
+    await assertProjectAccess(ctx, user, args.projectId);
+
+    const chats = await ctx.db
+      .query("chats")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .order("desc")
+      .collect();
+
+    const result = [];
+    for (const chat of chats) {
+      const messages = await ctx.db
+        .query("chatMessages")
+        .withIndex("by_chatId", (q) => q.eq("chatId", chat._id))
+        .collect();
+      result.push({
+        _id: chat._id,
+        projectId: chat.projectId,
+        name: chat.name ?? null,
+        createdAt: chat.createdAt,
+        messageCount: messages.length,
+      });
+    }
+    return result;
+  },
+});
+
+export const getChatWithMessages = query({
+  args: { token: v.string(), chatId: v.id("chats") },
+  handler: async (ctx, args) => {
+    const user = await authenticateUser(ctx, args.token);
+    const chat = await ctx.db.get(args.chatId);
+    if (!chat) return null;
+    await assertProjectAccess(ctx, user, chat.projectId);
+
+    const messages = await ctx.db
+      .query("chatMessages")
+      .withIndex("by_chatId", (q) => q.eq("chatId", args.chatId))
+      .order("asc")
+      .collect();
+
+    return {
+      chatId: chat._id,
+      projectId: chat.projectId,
+      name: chat.name ?? null,
+      createdAt: chat.createdAt,
+      messages: messages.map((m) => ({
+        _id: m._id as string,
+        role: m.role,
+        content: m.content,
+        reasoning: m.reasoning,
+        createdAt: m.createdAt,
+      })),
+    };
+  },
+});
+
 // ---------------------------------------------------------------------------
 // Mutations
 // ---------------------------------------------------------------------------
 
-export const sendMessage = mutation({
+export const createChat = mutation({
   args: {
     token: v.string(),
     projectId: v.id("projects"),
+    name: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const user = await authenticateUser(ctx, args.token);
+    await assertProjectAccess(ctx, user, args.projectId);
+
+    const chatId = await ctx.db.insert("chats", {
+      projectId: args.projectId,
+      name: args.name ?? undefined,
+      createdAt: Date.now(),
+    });
+    return { chatId };
+  },
+});
+
+export const sendMessage = mutation({
+  args: {
+    token: v.string(),
+    chatId: v.id("chats"),
     role: v.union(v.literal("user"), v.literal("assistant")),
     content: v.string(),
     reasoning: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const user = await authenticateUser(ctx, args.token);
-    await assertProjectAccess(ctx, user, args.projectId);
-
-    let chat = await ctx.db
-      .query("chats")
-      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
-      .unique();
-
-    if (!chat) {
-      const chatId = await ctx.db.insert("chats", {
-        projectId: args.projectId,
-        createdAt: Date.now(),
-      });
-      chat = (await ctx.db.get(chatId))!;
-    }
+    const chat = await ctx.db.get(args.chatId);
+    if (!chat) throw new Error("Chat not found");
+    await assertProjectAccess(ctx, user, chat.projectId);
 
     const messageId = await ctx.db.insert("chatMessages", {
-      chatId: chat._id,
+      chatId: args.chatId,
       role: args.role,
       content: args.content,
       reasoning: args.reasoning,
       createdAt: Date.now(),
     });
 
-    return { messageId, chatId: chat._id };
+    return { messageId, chatId: args.chatId };
+  },
+});
+
+export const renameChat = mutation({
+  args: {
+    token: v.string(),
+    chatId: v.id("chats"),
+    name: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const user = await authenticateUser(ctx, args.token);
+    const chat = await ctx.db.get(args.chatId);
+    if (!chat) throw new Error("Chat not found");
+    await assertProjectAccess(ctx, user, chat.projectId);
+
+    await ctx.db.patch(args.chatId, { name: args.name.trim() || undefined });
+    return { ok: true as const };
+  },
+});
+
+export const deleteChat = mutation({
+  args: {
+    token: v.string(),
+    chatId: v.id("chats"),
+  },
+  handler: async (ctx, args) => {
+    const user = await authenticateUser(ctx, args.token);
+    const chat = await ctx.db.get(args.chatId);
+    if (!chat) throw new Error("Chat not found");
+    await assertProjectAccess(ctx, user, chat.projectId);
+
+    const messages = await ctx.db
+      .query("chatMessages")
+      .withIndex("by_chatId", (q) => q.eq("chatId", args.chatId))
+      .collect();
+    for (const msg of messages) {
+      await ctx.db.delete(msg._id);
+    }
+    await ctx.db.delete(args.chatId);
+    return { ok: true as const };
   },
 });
