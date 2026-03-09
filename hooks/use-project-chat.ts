@@ -174,9 +174,28 @@ export function useProjectChat({
       abortRef.current = abortController
 
       try {
+        // If the chat was created from a project, the very first assistant
+        // message is the raw project overview JSON. We want that to show up
+        // in the UI, but we *never* want to send it back to the model,
+        // otherwise the AI keeps echoing the overview.
+        const initialAssistantContent =
+          chatData?.messages?.[0]?.role === "assistant"
+            ? chatData.messages[0].content.trim()
+            : ""
+
+        // Build history from existing messages, but strip out any assistant
+        // message whose content exactly matches that initial project overview.
         const history: Array<{ role: string; content: string }> =
           effectiveChatId && chatData
-            ? chatData.messages.map((m) => ({ role: m.role, content: m.content }))
+            ? chatData.messages
+                .filter((m, index) => {
+                  if (!initialAssistantContent) return true
+                  return !(
+                    m.role === "assistant" &&
+                    m.content.trim() === initialAssistantContent
+                  )
+                })
+                .map((m) => ({ role: m.role, content: m.content }))
             : effectiveChatId
               ? []
               : localMessages.map((m) => ({ role: m.role, content: m.content }))

@@ -23,11 +23,12 @@ export default function ChatPage() {
   const { isAuthenticated, sessionToken } = useAuth();
 
   const initialChatId = searchParams.get("chatId");
+  const initialProjectId = searchParams.get("projectId");
   const [activeChatId, setActiveChatId] = useState<Id<"chats"> | null>(
     initialChatId ? (initialChatId as Id<"chats">) : null,
   );
   const [projectToLinkId, setProjectToLinkId] = useState<Id<"projects"> | null>(
-    null,
+    initialProjectId ? (initialProjectId as Id<"projects">) : null,
   );
   const [useClaudeFirstPrompt, setUseClaudeFirstPrompt] = useState(false);
 
@@ -49,11 +50,12 @@ export default function ChatPage() {
   );
   const linkedProjectName =
     projectToLinkId && projects
-      ? projects.find((p) => p._id === projectToLinkId)?.projectName ?? null
+      ? (projects.find((p) => p._id === projectToLinkId)?.projectName ?? null)
       : null;
   const activeProjectName =
     chatData?.projectId && projects
-      ? projects.find((p) => p._id === chatData.projectId)?.projectName ?? null
+      ? (projects.find((p) => p._id === chatData.projectId)?.projectName ??
+        null)
       : null;
 
   const liveProject: Project | null = useMemo(() => {
@@ -67,8 +69,16 @@ export default function ChatPage() {
 
   useEffect(() => {
     const chatIdParam = searchParams.get("chatId");
+    const projectIdParam = searchParams.get("projectId");
+
     if (chatIdParam) {
       setActiveChatId(chatIdParam as Id<"chats">);
+    } else {
+      setActiveChatId(null);
+    }
+
+    if (!chatIdParam && projectIdParam) {
+      setProjectToLinkId(projectIdParam as Id<"projects">);
     }
   }, [searchParams]);
 
@@ -172,6 +182,7 @@ export default function ChatPage() {
           hasMessages={messages.length > 0}
           onClear={handleNewChat}
           projectName={activeProjectName ?? undefined}
+          projectId={chatData?.projectId as string | undefined}
         />
 
         <ScrollArea className="flex-1 pt-14">
@@ -187,10 +198,23 @@ export default function ChatPage() {
               />
             </div>
           ) : (
-              <div className="mx-auto max-w-3xl divide-y divide-border pb-40">
-              {messages.map((message) => (
-                <ChatMessage key={message.id} message={message} liveProject={liveProject} />
-              ))}
+            <div className="mx-auto max-w-3xl divide-y divide-border pb-40">
+              {messages.map((message, index) => {
+                // Only show the rich project overview card on the very first
+                // assistant message in the chat. All later assistant messages
+                // should behave like a normal chat response.
+                const isFirstAssistant =
+                  message.role === "assistant" &&
+                  messages.findIndex((m) => m.role === "assistant") === index;
+
+                return (
+                  <ChatMessage
+                    key={message.id}
+                    message={message}
+                    liveProject={isFirstAssistant ? liveProject : null}
+                  />
+                );
+              })}
               {error && (
                 <div className="flex items-center gap-2 px-4 py-3 text-sm text-destructive">
                   <AlertCircle className="size-4 shrink-0" />

@@ -44,6 +44,7 @@ import {
   Trash2,
   CheckCircle2,
   Circle,
+  GanttChart,
 } from "lucide-react";
 import {
   Tooltip,
@@ -77,8 +78,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import type { Id } from "@/convex/_generated/dataModel";
+import { TimelineSection } from "@/components/project-page/TimelineSection";
 
-type Section = "overview" | "tasks" | "chat" | "calendar" | "settings";
+type Section = "overview" | "tasks" | "chat" | "calendar" | "timeline" | "settings";
 
 type NavItem = {
   id: Section;
@@ -89,6 +91,7 @@ type NavItem = {
 const NAV_ITEMS: NavItem[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "tasks", label: "Tasks", icon: CheckSquare },
+  { id: "timeline", label: "Timeline", icon: GanttChart },
   { id: "chat", label: "Chat", icon: MessageSquare },
   { id: "calendar", label: "Calendar", icon: CalendarDays },
   { id: "settings", label: "Settings", icon: Settings },
@@ -376,7 +379,10 @@ function TasksSection({
   onTaskCompleted,
 }: {
   project: ProjectData;
-  onTaskCompleted?: (phaseOrder: number, taskOrder: number) => Promise<void> | void;
+  onTaskCompleted?: (
+    phaseOrder: number,
+    taskOrder: number,
+  ) => Promise<void> | void;
 }) {
   let parsedProject: Project | null = null;
   try {
@@ -524,9 +530,7 @@ function TasksSection({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={handleCancel}>
-              Cancel
-            </AlertDialogCancel>
+            <AlertDialogCancel onClick={handleCancel}>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleConfirm}>
               Mark as done
             </AlertDialogAction>
@@ -546,7 +550,6 @@ function ChatSection({ project }: { project: ProjectData }) {
       ? { token: sessionToken, projectId: project._id as Id<"projects"> }
       : "skip",
   );
-  const createChatMut = useMutation(api.chats.createChat);
   const deleteChatMut = useMutation(api.chats.deleteChat);
   const renameChatMut = useMutation(api.chats.renameChat);
 
@@ -560,20 +563,14 @@ function ChatSection({ project }: { project: ProjectData }) {
     router.push(`/chat?chatId=${chatId}`);
   };
 
-  const handleNewChat = async () => {
+  const handleNewChat = () => {
     if (!sessionToken || !project._id) return;
     setCreating(true);
-    try {
-      const { chatId } = await createChatMut({
-        token: sessionToken,
-        projectId: project._id as Id<"projects">,
-      });
-      router.push(`/chat?chatId=${chatId}`);
-    } catch {
-      toast({ variant: "destructive", title: "Failed to create chat." });
-    } finally {
-      setCreating(false);
-    }
+    // In the Next.js App Router, router.push is synchronous (does not
+    // return a Promise), so we can't call .finally() on it. Just push
+    // and immediately reset the local loading state.
+    router.push(`/chat?projectId=${project._id}`);
+    setCreating(false);
   };
 
   const handleRenameSubmit = async () => {
@@ -820,15 +817,22 @@ function SectionContent({
 }: {
   section: Section;
   project: ProjectData;
-  onTaskCompleted?: (phaseOrder: number, taskOrder: number) => Promise<void> | void;
+  onTaskCompleted?: (
+    phaseOrder: number,
+    taskOrder: number,
+  ) => Promise<void> | void;
 }) {
   switch (section) {
     case "overview":
       return <OverviewSection project={project} />;
     case "tasks":
-      return <TasksSection project={project} onTaskCompleted={onTaskCompleted} />;
+      return (
+        <TasksSection project={project} onTaskCompleted={onTaskCompleted} />
+      );
     case "chat":
       return <ChatSection project={project} />;
+    case "timeline":
+      return <TimelineSection project={project} />;
     case "calendar":
       return <CalendarSection />;
     case "settings":
@@ -938,20 +942,20 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
       return;
     }
 
+    const updatedProjectWbs = parsed.project_wbs.map((phase) =>
+      phase.order === phaseOrder
+        ? {
+            ...phase,
+            tasks: phase.tasks.map((task) =>
+              task.order === taskOrder ? { ...task, completed: true } : task,
+            ),
+          }
+        : phase,
+    ) as Project["project_wbs"];
+
     const updated: Project = {
       ...parsed,
-      project_wbs: parsed.project_wbs.map((phase) =>
-        phase.order === phaseOrder
-          ? {
-              ...phase,
-              tasks: phase.tasks.map((task) =>
-                task.order === taskOrder
-                  ? { ...task, completed: true }
-                  : task,
-              ),
-            }
-          : phase,
-      ),
+      project_wbs: updatedProjectWbs,
     };
 
     const dataStr = JSON.stringify(updated);
@@ -1045,6 +1049,7 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
         hasMessages={false}
         onClear={() => router.push("/chat")}
         projectName={project.projectName}
+        projectId={project._id}
       />
       <div className="flex min-h-0 flex-1 overflow-hidden pt-14">
         <aside

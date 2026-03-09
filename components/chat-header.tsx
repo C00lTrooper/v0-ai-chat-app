@@ -35,12 +35,14 @@ interface ChatHeaderProps {
   hasMessages: boolean;
   onClear: () => void;
   projectName?: string;
+  projectId?: string;
 }
 
 export function ChatHeader({
   hasMessages,
   onClear,
   projectName,
+  projectId,
 }: ChatHeaderProps) {
   const { resolvedTheme, setTheme } = useTheme();
   const router = useRouter();
@@ -68,9 +70,19 @@ export function ChatHeader({
             <span className="shrink-0 text-muted-foreground/70" aria-hidden>
               \
             </span>
-            <span className="truncate text-sm font-medium text-foreground">
-              {projectName}
-            </span>
+            {projectId ? (
+              <button
+                type="button"
+                onClick={() => router.push(`/projects/${projectId}`)}
+                className="truncate text-sm font-medium text-foreground hover:underline"
+              >
+                {projectName}
+              </button>
+            ) : (
+              <span className="truncate text-sm font-medium text-foreground">
+                {projectName}
+              </span>
+            )}
           </>
         )}
       </div>
@@ -107,7 +119,10 @@ export function ChatHeader({
                 <MessageSquare className="size-4" />
                 Chat
               </SelectItem>
-              <SelectItem value="/calendar" className="cursor-pointer gap-2 py-2.5">
+              <SelectItem
+                value="/calendar"
+                className="cursor-pointer gap-2 py-2.5"
+              >
                 <CalendarDays className="size-4" />
                 Calendar
               </SelectItem>
@@ -117,16 +132,16 @@ export function ChatHeader({
             <Button
               variant="ghost"
               size="sm"
-              className="gap-1.5 px-3 text-xs h-8 font-normal"
+              className="gap-1.5 px-3 text-sm h-8"
               asChild
             >
               <Link
                 href="/chat"
-                className={
+                className={`flex items-center gap-1.5 truncate text-sm ${
                   pathname === "/chat"
                     ? "text-foreground"
                     : "text-muted-foreground hover:text-foreground"
-                }
+                }`}
               >
                 <MessageSquare className="size-3.5" />
                 Chat
@@ -135,16 +150,16 @@ export function ChatHeader({
             <Button
               variant="ghost"
               size="sm"
-              className="gap-1.5 px-3 text-xs h-8 font-normal"
+              className="gap-1.5 px-3 text-sm h-8"
               asChild
             >
               <Link
                 href="/calendar"
-                className={
+                className={`flex items-center gap-1.5 truncate text-sm ${
                   pathname === "/calendar"
                     ? "text-foreground"
                     : "text-muted-foreground hover:text-foreground"
-                }
+                }`}
               >
                 <CalendarDays className="size-3.5" />
                 Calendar
