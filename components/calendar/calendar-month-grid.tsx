@@ -95,6 +95,7 @@ export function CalendarMonthGrid({
                   <div className="flex min-h-0 flex-1 flex-col gap-px overflow-hidden">
                     {visible.map((evt) => {
                       const color = PROJECT_COLORS[evt.colorIndex];
+                      const isCompleted = evt.completed;
                       return (
                         <button
                           key={evt.id}
@@ -104,9 +105,12 @@ export function CalendarMonthGrid({
                           }}
                           className="flex w-full items-center gap-1 truncate rounded px-1 py-px text-left text-[11px] leading-tight transition-opacity hover:opacity-80"
                           style={{
-                            backgroundColor: `${color.hex}18`,
+                            backgroundColor: isCompleted
+                              ? `${color.hex}10`
+                              : `${color.hex}18`,
                             borderLeft: `3px solid ${color.hex}`,
                             color: color.hex,
+                            opacity: isCompleted ? 0.6 : 1,
                           }}
                           title={`${formatTime12h(evt.timeStr)} · ${evt.taskName}`}
                         >
@@ -114,7 +118,13 @@ export function CalendarMonthGrid({
                             {formatTime12h(evt.timeStr)}
                           </span>
                           <span className="mx-0.5 text-[9px] opacity-50">·</span>
-                          <span className="truncate">{evt.taskName}</span>
+                          <span
+                            className={`truncate ${
+                              isCompleted ? "line-through decoration-emerald-500/70" : ""
+                            }`}
+                          >
+                            {evt.taskName}
+                          </span>
                         </button>
                       );
                     })}

@@ -1,6 +1,6 @@
 "use client";
 
-import { Calendar, Clock, FolderOpen, Layers } from "lucide-react";
+import { Calendar, Clock, FolderOpen, Layers, CheckCircle2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -40,6 +40,12 @@ export function TaskDetailDialog({
                 {event.projectName}
               </DialogDescription>
             </div>
+            {event.completed && (
+              <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+                <CheckCircle2 className="size-3" />
+                Completed
+              </span>
+            )}
           </div>
         </DialogHeader>
         <div className="space-y-3 pt-1">

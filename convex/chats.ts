@@ -148,13 +148,26 @@ export const createChat = mutation({
   },
   handler: async (ctx, args) => {
     const user = await authenticateUser(ctx, args.token);
-    await assertProjectAccess(ctx, user, args.projectId);
+    const project = await assertProjectAccess(ctx, user, args.projectId);
+
+    const now = Date.now();
 
     const chatId = await ctx.db.insert("chats", {
       projectId: args.projectId,
       name: args.name ?? undefined,
-      createdAt: Date.now(),
+      createdAt: now,
     });
+
+    const trimmedData = project.data?.trim();
+    if (trimmedData && trimmedData !== "{}") {
+      await ctx.db.insert("chatMessages", {
+        chatId,
+        role: "assistant",
+        content: trimmedData,
+        createdAt: now,
+      });
+    }
+
     return { chatId };
   },
 });

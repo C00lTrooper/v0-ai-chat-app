@@ -19,6 +19,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Calendar } from "@/components/ui/calendar";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   LayoutDashboard,
   CheckSquare,
@@ -36,6 +42,8 @@ import {
   MoreVertical,
   Pencil,
   Trash2,
+  CheckCircle2,
+  Circle,
 } from "lucide-react";
 import {
   Tooltip,
@@ -138,7 +146,56 @@ function ProjectPageSkeleton() {
 // Section placeholders
 // ---------------------------------------------------------------------------
 
-function OverviewSection({ project }: { project: ProjectData }) {
+function OverviewSection({
+  project,
+  onTargetDateChange,
+}: {
+  project: ProjectData;
+  onTargetDateChange?: (newDate: string) => void;
+}) {
+  const { sessionToken } = useAuth();
+  const updateProject = useMutation(api.projects.update);
+  const [updatingTargetDate, setUpdatingTargetDate] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(() => {
+    if (!project.targetDate) return undefined;
+    const d = new Date(project.targetDate);
+    return Number.isNaN(d.getTime()) ? undefined : d;
+  });
+
+  const [editingObjective, setEditingObjective] = useState(false);
+  const [objectiveDraft, setObjectiveDraft] = useState(project.objective);
+  const [updatingObjective, setUpdatingObjective] = useState(false);
+
+  const canEditTargetDate = project.isOwner && !!sessionToken;
+  const canEditObjective = project.isOwner && !!sessionToken;
+  const displayTargetDate =
+    selectedDate?.toLocaleDateString() || project.targetDate || "Select date";
+
+  const handleSelectTargetDate = async (date: Date | undefined) => {
+    if (!date || !canEditTargetDate) return;
+    if (!sessionToken) return;
+
+    setUpdatingTargetDate(true);
+    try {
+      const iso = date.toISOString().slice(0, 10);
+      await updateProject({
+        token: sessionToken,
+        projectId: project._id as Id<"projects">,
+        targetDate: iso,
+      });
+      setSelectedDate(date);
+      onTargetDateChange?.(iso);
+      toast({ title: "Target date updated." });
+    } catch {
+      toast({
+        variant: "destructive",
+        title: "Failed to update target date.",
+      });
+    } finally {
+      setUpdatingTargetDate(false);
+    }
+  };
+
   let parsedProject: Project | null = null;
   try {
     if (project.data) parsedProject = JSON.parse(project.data) as Project;
@@ -169,17 +226,112 @@ function OverviewSection({ project }: { project: ProjectData }) {
             <CalendarClock className="size-4" />
             Target Date
           </div>
-          <p className="mt-2 text-sm font-semibold text-foreground">
-            {project.targetDate}
-          </p>
+          {canEditTargetDate ? (
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className="mt-2 inline-flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 text-left text-sm font-semibold text-foreground shadow-sm transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={updatingTargetDate}
+                >
+                  <span className="truncate">{displayTargetDate}</span>
+                  <CalendarClock className="ml-2 size-4 shrink-0 text-muted-foreground" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="p-0" align="start">
+                <Calendar
+                  mode="single"
+                  selected={selectedDate}
+                  onSelect={handleSelectTargetDate}
+                  initialFocus
+                />
+              </PopoverContent>
+            </Popover>
+          ) : (
+            <p className="mt-2 text-sm font-semibold text-foreground">
+              {project.targetDate || "Not set"}
+            </p>
+          )}
         </div>
 
         <div className="rounded-xl border border-border bg-card p-5">
-          <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-            <Target className="size-4" />
-            Objective
+          <div className="flex items-center justify-between gap-2 text-sm font-medium text-muted-foreground">
+            <div className="flex items-center gap-2">
+              <Target className="size-4" />
+              Objective
+            </div>
+            {canEditObjective && !editingObjective && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="text-muted-foreground hover:text-foreground"
+                onClick={() => {
+                  setObjectiveDraft(project.objective);
+                  setEditingObjective(true);
+                }}
+              >
+                <Pencil className="size-4" />
+                <span className="sr-only">Edit objective</span>
+              </Button>
+            )}
           </div>
-          <p className="mt-2 text-sm text-foreground">{project.objective}</p>
+          {canEditObjective && editingObjective ? (
+            <div className="mt-2 space-y-2">
+              <textarea
+                className="w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground shadow-sm outline-none ring-offset-background placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                value={objectiveDraft}
+                onChange={(e) => setObjectiveDraft(e.target.value)}
+                placeholder="Describe the project objective"
+                disabled={updatingObjective}
+                rows={Math.min(
+                  4,
+                  Math.max(2, (objectiveDraft.match(/\n/g)?.length ?? 0) + 1),
+                )}
+              />
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setObjectiveDraft(project.objective);
+                    setEditingObjective(false);
+                  }}
+                  disabled={updatingObjective}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={async () => {
+                    if (!sessionToken || updatingObjective) return;
+                    setUpdatingObjective(true);
+                    try {
+                      await updateProject({
+                        token: sessionToken,
+                        projectId: project._id as Id<"projects">,
+                        objective: objectiveDraft,
+                      });
+                      toast({ title: "Objective updated." });
+                      setEditingObjective(false);
+                    } catch {
+                      toast({
+                        variant: "destructive",
+                        title: "Failed to update objective.",
+                      });
+                    } finally {
+                      setUpdatingObjective(false);
+                    }
+                  }}
+                >
+                  {updatingObjective ? "Saving…" : "Save"}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <p className="mt-2 text-sm text-foreground">
+              {objectiveDraft || "No objective yet"}
+            </p>
+          )}
         </div>
       </div>
 
@@ -219,7 +371,13 @@ function OverviewSection({ project }: { project: ProjectData }) {
   );
 }
 
-function TasksSection({ project }: { project: ProjectData }) {
+function TasksSection({
+  project,
+  onTaskCompleted,
+}: {
+  project: ProjectData;
+  onTaskCompleted?: (phaseOrder: number, taskOrder: number) => Promise<void> | void;
+}) {
   let parsedProject: Project | null = null;
   try {
     if (project.data) parsedProject = JSON.parse(project.data) as Project;
@@ -228,11 +386,30 @@ function TasksSection({ project }: { project: ProjectData }) {
   }
 
   const phases =
-    parsedProject?.project_wbs
-      ?.slice()
-      .sort((a, b) => a.order - b.order)
-      ?? [];
+    parsedProject?.project_wbs?.slice().sort((a, b) => a.order - b.order) ?? [];
   const hasTasks = phases.some((p) => p.tasks?.length);
+
+  type TaskRef = {
+    phaseOrder: number;
+    taskOrder: number;
+    taskName: string;
+  };
+
+  const [pendingTask, setPendingTask] = useState<TaskRef | null>(null);
+
+  const handleRequestComplete = (task: TaskRef) => {
+    setPendingTask(task);
+  };
+
+  const handleConfirm = async () => {
+    if (!pendingTask) return;
+    await onTaskCompleted?.(pendingTask.phaseOrder, pendingTask.taskOrder);
+    setPendingTask(null);
+  };
+
+  const handleCancel = () => {
+    setPendingTask(null);
+  };
 
   if (!hasTasks) {
     return (
@@ -260,7 +437,9 @@ function TasksSection({ project }: { project: ProjectData }) {
       </p>
       <div className="mt-6 space-y-6">
         {phases.map((phase, phaseIndex) => {
-          const tasks = (phase.tasks ?? []).slice().sort((a, b) => a.order - b.order);
+          const tasks = (phase.tasks ?? [])
+            .slice()
+            .sort((a, b) => a.order - b.order);
           if (tasks.length === 0) return null;
           return (
             <div
@@ -280,6 +459,7 @@ function TasksSection({ project }: { project: ProjectData }) {
                 <Table className="text-sm">
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-10">Status</TableHead>
                       <TableHead className="w-8">#</TableHead>
                       <TableHead>Task</TableHead>
                       <TableHead>Date</TableHead>
@@ -287,22 +467,45 @@ function TasksSection({ project }: { project: ProjectData }) {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {tasks.map((task, taskIndex) => (
-                      <TableRow key={taskIndex}>
-                        <TableCell className="w-8 font-medium text-muted-foreground">
-                          {task.order + 1}
-                        </TableCell>
-                        <TableCell className="font-medium">
-                          {task.name}
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {task.date}
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {task.time}
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {tasks.map((task, taskIndex) => {
+                      const isCompleted = Boolean(
+                        (task as { completed?: boolean }).completed,
+                      );
+                      return (
+                        <TableRow
+                          key={taskIndex}
+                          className="cursor-pointer hover:bg-muted/40"
+                          onClick={() =>
+                            !isCompleted &&
+                            handleRequestComplete({
+                              phaseOrder: phase.order,
+                              taskOrder: task.order,
+                              taskName: task.name,
+                            })
+                          }
+                        >
+                          <TableCell className="w-10 align-middle">
+                            {isCompleted ? (
+                              <CheckCircle2 className="size-4 text-emerald-500" />
+                            ) : (
+                              <Circle className="size-4 text-muted-foreground" />
+                            )}
+                          </TableCell>
+                          <TableCell className="w-8 font-medium text-muted-foreground">
+                            {task.order + 1}
+                          </TableCell>
+                          <TableCell className="font-medium">
+                            {task.name}
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {task.date}
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {task.time}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>
@@ -310,6 +513,26 @@ function TasksSection({ project }: { project: ProjectData }) {
           );
         })}
       </div>
+      <AlertDialog open={!!pendingTask} onOpenChange={handleCancel}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Mark task as done?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingTask
+                ? `Do you want to mark “${pendingTask.taskName}” as completed?`
+                : null}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={handleCancel}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirm}>
+              Mark as done
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -444,7 +667,8 @@ function ChatSection({ project }: { project: ProjectData }) {
                   className="min-w-0 flex-1 text-left text-sm font-medium text-foreground hover:underline"
                   onClick={() => handleOpenChat(chat._id)}
                 >
-                  {chat.name?.trim() || `Chat · ${chat.messageCount} message${chat.messageCount === 1 ? "" : "s"}`}
+                  {chat.name?.trim() ||
+                    `Chat · ${chat.messageCount} message${chat.messageCount === 1 ? "" : "s"}`}
                 </button>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -525,7 +749,10 @@ function ChatSection({ project }: { project: ProjectData }) {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={!!deleteChatId} onOpenChange={() => setDeleteChatId(null)}>
+      <AlertDialog
+        open={!!deleteChatId}
+        onOpenChange={() => setDeleteChatId(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this chat?</AlertDialogTitle>
@@ -589,15 +816,17 @@ function SettingsSection() {
 function SectionContent({
   section,
   project,
+  onTaskCompleted,
 }: {
   section: Section;
   project: ProjectData;
+  onTaskCompleted?: (phaseOrder: number, taskOrder: number) => Promise<void> | void;
 }) {
   switch (section) {
     case "overview":
       return <OverviewSection project={project} />;
     case "tasks":
-      return <TasksSection project={project} />;
+      return <TasksSection project={project} onTaskCompleted={onTaskCompleted} />;
     case "chat":
       return <ChatSection project={project} />;
     case "calendar":
@@ -695,6 +924,60 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
     }
   })();
 
+  const handleTaskCompleted = async (phaseOrder: number, taskOrder: number) => {
+    if (!sessionToken || !convexClient || !project) return;
+
+    let parsed: Project;
+    try {
+      parsed = JSON.parse(project.data) as Project;
+    } catch {
+      toast({
+        variant: "destructive",
+        title: "Failed to update task status.",
+      });
+      return;
+    }
+
+    const updated: Project = {
+      ...parsed,
+      project_wbs: parsed.project_wbs.map((phase) =>
+        phase.order === phaseOrder
+          ? {
+              ...phase,
+              tasks: phase.tasks.map((task) =>
+                task.order === taskOrder
+                  ? { ...task, completed: true }
+                  : task,
+              ),
+            }
+          : phase,
+      ),
+    };
+
+    const dataStr = JSON.stringify(updated);
+
+    try {
+      await convexClient.mutation(api.projects.update, {
+        token: sessionToken,
+        projectId: project._id as Id<"projects">,
+        data: dataStr,
+      });
+      setProject((prev) =>
+        prev
+          ? {
+              ...prev,
+              data: dataStr,
+            }
+          : prev,
+      );
+    } catch {
+      toast({
+        variant: "destructive",
+        title: "Failed to update task status.",
+      });
+    }
+  };
+
   const handleGenerateProject = async () => {
     if (!sessionToken || !project || generating) return;
     setGenerating(true);
@@ -719,7 +1002,10 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
         return;
       }
       if (!convexClient || !json.data) {
-        toast({ variant: "destructive", title: "Invalid response from server." });
+        toast({
+          variant: "destructive",
+          title: "Invalid response from server.",
+        });
         return;
       }
       const generatedTargetDate =
@@ -744,7 +1030,10 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
             }
           : null,
       );
-      toast({ title: "Project generated", description: "WBS and tasks have been created." });
+      toast({
+        title: "Project generated",
+        description: "WBS and tasks have been created.",
+      });
     } finally {
       setGenerating(false);
     }
@@ -775,18 +1064,24 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
                         disabled={generating}
                         className={cn(
                           "flex w-full items-center rounded-lg py-2 text-sm font-medium transition-colors",
-                          sidebarMinimized ? "justify-center px-0" : "gap-3 px-3",
+                          sidebarMinimized
+                            ? "justify-center px-0"
+                            : "gap-3 px-3",
                           "bg-primary/15 text-primary hover:bg-primary/25 disabled:opacity-50",
                         )}
                       >
                         <Sparkles className="size-4 shrink-0" />
                         {!sidebarMinimized && (
-                          <span>{generating ? "Generating…" : "Generate project"}</span>
+                          <span>
+                            {generating ? "Generating…" : "Generate project"}
+                          </span>
                         )}
                       </button>
                     </TooltipTrigger>
                     <TooltipContent side="right">
-                      {generating ? "Generating…" : "Generate WBS and tasks from project info"}
+                      {generating
+                        ? "Generating…"
+                        : "Generate WBS and tasks from project info"}
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
@@ -860,7 +1155,11 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
         </aside>
 
         <main className="min-h-0 flex-1 overflow-y-auto p-8">
-          <SectionContent section={activeSection} project={project} />
+          <SectionContent
+            section={activeSection}
+            project={project}
+            onTaskCompleted={handleTaskCompleted}
+          />
         </main>
       </div>
     </div>

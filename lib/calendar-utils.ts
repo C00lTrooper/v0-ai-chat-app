@@ -15,6 +15,9 @@ export interface CalendarEvent {
   date: Date;
   timeStr: string;
   colorIndex: number;
+  completed: boolean;
+  phaseOrder: number;
+  taskOrder: number;
 }
 
 export const PROJECT_COLORS = [

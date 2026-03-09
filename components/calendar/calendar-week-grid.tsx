@@ -108,6 +108,8 @@ export function CalendarWeekGrid({
                   const top = (hour - START_HOUR) * HOUR_HEIGHT;
                   if (top < 0 || top >= HOURS.length * HOUR_HEIGHT) return null;
 
+                  const isCompleted = evt.completed;
+
                   return (
                     <button
                       key={evt.id}
@@ -115,9 +117,12 @@ export function CalendarWeekGrid({
                       style={{
                         top,
                         height: HOUR_HEIGHT - 4,
-                        backgroundColor: `${color.hex}20`,
+                        backgroundColor: isCompleted
+                          ? `${color.hex}10`
+                          : `${color.hex}20`,
                         borderLeft: `3px solid ${color.hex}`,
                         color: color.hex,
+                        opacity: isCompleted ? 0.6 : 1,
                       }}
                       onClick={(e) => {
                         e.stopPropagation();
@@ -128,7 +133,13 @@ export function CalendarWeekGrid({
                       <span className="font-semibold">
                         {formatTime12h(evt.timeStr)}
                       </span>
-                      <span className="truncate">{evt.taskName}</span>
+                      <span
+                        className={`truncate ${
+                          isCompleted ? "line-through decoration-emerald-500/70" : ""
+                        }`}
+                      >
+                        {evt.taskName}
+                      </span>
                     </button>
                   );
                 })}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect, useState, useCallback } from "react";
+import { useRef, useEffect, useState, useCallback, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -14,6 +14,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { ChatControls } from "@/components/chat-controls";
 import { AlertCircle } from "lucide-react";
 import { useAuth } from "@/components/auth-provider";
+import type { Project } from "@/lib/project-schema";
 import type { Id } from "@/convex/_generated/dataModel";
 
 export default function ChatPage() {
@@ -40,6 +41,12 @@ export default function ChatPage() {
       ? { token: sessionToken, chatId: activeChatId }
       : "skip",
   );
+  const projectDataForChat = useQuery(
+    api.projects.getById,
+    chatData?.projectId && sessionToken
+      ? { token: sessionToken, projectId: chatData.projectId as Id<"projects"> }
+      : "skip",
+  );
   const linkedProjectName =
     projectToLinkId && projects
       ? projects.find((p) => p._id === projectToLinkId)?.projectName ?? null
@@ -48,6 +55,15 @@ export default function ChatPage() {
     chatData?.projectId && projects
       ? projects.find((p) => p._id === chatData.projectId)?.projectName ?? null
       : null;
+
+  const liveProject: Project | null = useMemo(() => {
+    if (!projectDataForChat?.data) return null;
+    try {
+      return JSON.parse(projectDataForChat.data) as Project;
+    } catch {
+      return null;
+    }
+  }, [projectDataForChat]);
 
   useEffect(() => {
     const chatIdParam = searchParams.get("chatId");
@@ -171,9 +187,9 @@ export default function ChatPage() {
               />
             </div>
           ) : (
-            <div className="mx-auto max-w-3xl divide-y divide-border pb-40">
+              <div className="mx-auto max-w-3xl divide-y divide-border pb-40">
               {messages.map((message) => (
-                <ChatMessage key={message.id} message={message} />
+                <ChatMessage key={message.id} message={message} liveProject={liveProject} />
               ))}
               {error && (
                 <div className="flex items-center gap-2 px-4 py-3 text-sm text-destructive">

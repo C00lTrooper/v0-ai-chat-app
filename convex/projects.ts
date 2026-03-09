@@ -401,8 +401,6 @@ export const listForPage = query({
       return [];
     }
     const all = await getAccessibleProjects(ctx, user._id);
-
-    const now = Date.now();
     const results = [];
 
     for (const p of all) {
@@ -415,10 +413,7 @@ export const listForPage = query({
         for (const phase of wbs) {
           for (const task of phase.tasks || []) {
             totalTasks++;
-            if (task.date) {
-              const taskTime = new Date(task.date).getTime();
-              if (!isNaN(taskTime) && taskTime <= now) completedTasks++;
-            }
+            if (task.completed) completedTasks++;
           }
         }
       } catch {

@@ -75,6 +75,8 @@ export function CalendarDayView({
             const top = (hour - START_HOUR) * HOUR_HEIGHT;
             if (top < 0 || top >= HOURS.length * HOUR_HEIGHT) return null;
 
+            const isCompleted = evt.completed;
+
             return (
               <button
                 key={evt.id}
@@ -83,13 +85,19 @@ export function CalendarDayView({
                   top,
                   left: "4.5rem",
                   height: HOUR_HEIGHT - 4,
-                  backgroundColor: `${color.hex}18`,
+                  backgroundColor: isCompleted ? `${color.hex}10` : `${color.hex}18`,
                   borderLeft: `4px solid ${color.hex}`,
+                  opacity: isCompleted ? 0.6 : 1,
                 }}
                 onClick={() => onEventClick(evt)}
               >
                 <div className="flex flex-col gap-0.5">
-                  <span className="text-sm font-semibold" style={{ color: color.hex }}>
+                  <span
+                    className={`text-sm font-semibold ${
+                      isCompleted ? "line-through decoration-emerald-500/70" : ""
+                    }`}
+                    style={{ color: color.hex }}
+                  >
                     {evt.taskName}
                   </span>
                   <span className="text-xs text-muted-foreground">

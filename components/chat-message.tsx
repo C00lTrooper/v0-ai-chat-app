@@ -13,14 +13,20 @@ import { ProjectSummary } from "@/components/project-page/ProjectSummary"
 import { ProjectScope } from "@/components/project-page/ProjectScope"
 import { ProjectWbs } from "@/components/project-page/ProjectWbs"
 
-export function ChatMessage({ message }: { message: Message }) {
+export function ChatMessage({
+  message,
+  liveProject,
+}: {
+  message: Message
+  liveProject?: Project | null
+}) {
   const isUser = message.role === "user"
   const [showReasoning, setShowReasoning] = useState(false)
   const [copied, setCopied] = useState(false)
 
-  let project: Project | null = null
+  let project: Project | null = liveProject ?? null
 
-  if (!isUser && message.content) {
+  if (!project && !isUser && message.content) {
     try {
       const unknown = extractFirstJsonObject(message.content)
       const parsed = ProjectSchema.safeParse(unknown)

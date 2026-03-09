@@ -11,6 +11,7 @@ interface ProjectWbsTask {
   name: string;
   date: string;
   time: string;
+  completed?: boolean;
 }
 
 interface ProjectWbs {
@@ -97,6 +98,9 @@ export function useCalendarData() {
               date: parsed,
               timeStr: task.time,
               colorIndex,
+              completed: Boolean(task.completed),
+              phaseOrder: phase.order,
+              taskOrder: task.order,
             });
           }
         }
