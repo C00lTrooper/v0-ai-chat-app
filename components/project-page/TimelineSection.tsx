@@ -101,6 +101,7 @@ export function TimelineSection({ project }: TimelineSectionProps) {
   const [selectedPhase, setSelectedPhase] = useState<PhaseWithLayout | null>(
     null,
   );
+  const [legendExpanded, setLegendExpanded] = useState(false);
   const [viewAll, setViewAll] = useState(false);
   const [allPhases, setAllPhases] = useState<PhaseWithLayout[] | null>(null);
   const [loadingAll, setLoadingAll] = useState(false);
@@ -202,6 +203,12 @@ export function TimelineSection({ project }: TimelineSectionProps) {
   const phases = viewAll ? allPhases ?? [] : projectPhases;
 
   const hasPhases = phases.length > 0;
+
+  const LEGEND_COLLAPSED_COUNT = 6;
+  const showLegendToggle = phases.length > LEGEND_COLLAPSED_COUNT;
+  const visibleLegendPhases = legendExpanded
+    ? phases
+    : phases.slice(0, LEGEND_COLLAPSED_COUNT);
 
   const { timelineStart, totalDays, timelineEnd } = useMemo(() => {
     if (!hasPhases) {
@@ -414,24 +421,38 @@ export function TimelineSection({ project }: TimelineSectionProps) {
       </div>
 
       {/* Legend */}
-      <div className="mt-4 flex flex-wrap gap-3">
-        {phases.map((p, i) => (
-          <button
-            key={`${p.projectId ?? project._id}-${p.phase.order}-${i}`}
-            className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted"
-            onClick={() => setSelectedPhase(p)}
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <div className="flex min-w-0 flex-1 flex-wrap gap-3">
+          {visibleLegendPhases.map((p, i) => (
+            <button
+              key={`${p.projectId ?? project._id}-${p.phase.order}-${i}`}
+              className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted"
+              onClick={() => setSelectedPhase(p)}
+            >
+              <div
+                className="size-2.5 rounded-sm"
+                style={{ backgroundColor: PROJECT_COLORS[p.colorIndex].hex }}
+              />
+              <span className="max-w-[140px] truncate">
+                {viewAll && p.projectName
+                  ? `${p.projectName}: ${p.phase.name}`
+                  : p.phase.name}
+              </span>
+            </button>
+          ))}
+        </div>
+        {showLegendToggle && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2.5 text-[11px] whitespace-nowrap"
+            onClick={() => setLegendExpanded((v) => !v)}
           >
-            <div
-              className="size-2.5 rounded-sm"
-              style={{ backgroundColor: PROJECT_COLORS[p.colorIndex].hex }}
-            />
-            <span className="truncate max-w-[140px]">
-              {viewAll && p.projectName
-                ? `${p.projectName}: ${p.phase.name}`
-                : p.phase.name}
-            </span>
-          </button>
-        ))}
+            {legendExpanded
+              ? "Show fewer"
+              : `See all ${phases.length.toString()}`}
+          </Button>
+        )}
       </div>
 
       {/* High-level info */}

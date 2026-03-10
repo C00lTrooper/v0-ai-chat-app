@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, Fragment } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation } from "convex/react";
 import { useAuth } from "@/components/auth-provider";
@@ -29,7 +29,6 @@ import {
   LayoutDashboard,
   CheckSquare,
   MessageSquare,
-  CalendarDays,
   Settings,
   Target,
   CalendarClock,
@@ -45,6 +44,8 @@ import {
   CheckCircle2,
   Circle,
   GanttChart,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react";
 import {
   Tooltip,
@@ -79,8 +80,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import type { Id } from "@/convex/_generated/dataModel";
 import { TimelineSection } from "@/components/project-page/TimelineSection";
+import { TaskDetailDialog } from "@/components/calendar/task-detail-dialog";
+import type { CalendarEvent } from "@/lib/calendar-utils";
 
-type Section = "overview" | "tasks" | "chat" | "calendar" | "timeline" | "settings";
+type Section = "overview" | "tasks" | "chat" | "timeline" | "settings";
 
 type NavItem = {
   id: Section;
@@ -93,7 +96,6 @@ const NAV_ITEMS: NavItem[] = [
   { id: "tasks", label: "Tasks", icon: CheckSquare },
   { id: "timeline", label: "Timeline", icon: GanttChart },
   { id: "chat", label: "Chat", icon: MessageSquare },
-  { id: "calendar", label: "Calendar", icon: CalendarDays },
   { id: "settings", label: "Settings", icon: Settings },
 ];
 
@@ -171,6 +173,7 @@ function OverviewSection({
 
   const canEditTargetDate = project.isOwner && !!sessionToken;
   const canEditObjective = project.isOwner && !!sessionToken;
+  const canEditFeatures = project.isOwner && !!sessionToken;
   const displayTargetDate =
     selectedDate?.toLocaleDateString() || project.targetDate || "Select date";
 
@@ -205,6 +208,119 @@ function OverviewSection({
   } catch {
     // data may be empty or invalid
   }
+
+  type Phase = Project["project_wbs"][number];
+
+  const [features, setFeatures] = useState<Phase[]>(() =>
+    parsedProject?.project_wbs
+      ? [...parsedProject.project_wbs].sort((a, b) => a.order - b.order)
+      : [],
+  );
+  const [editingFeatureIndex, setEditingFeatureIndex] = useState<number | null>(
+    null,
+  );
+  const [featureDraftName, setFeatureDraftName] = useState("");
+  const [featureDraftDescription, setFeatureDraftDescription] = useState("");
+  const [updatingFeatures, setUpdatingFeatures] = useState(false);
+
+  useEffect(() => {
+    if (!parsedProject?.project_wbs?.length) {
+      setFeatures([]);
+      return;
+    }
+    setFeatures(
+      [...parsedProject.project_wbs].sort((a, b) => a.order - b.order),
+    );
+  }, [project.data]);
+
+  const persistFeatures = async (nextFeatures: Phase[]) => {
+    if (!sessionToken || updatingFeatures) return;
+    if (!parsedProject) return;
+    setUpdatingFeatures(true);
+    try {
+      const updatedProject: Project = {
+        ...parsedProject,
+        project_wbs: nextFeatures.map((phase, index) => ({
+          ...phase,
+          order: index,
+        })) as Project["project_wbs"],
+      };
+      await updateProject({
+        token: sessionToken,
+        projectId: project._id as Id<"projects">,
+        data: JSON.stringify(updatedProject),
+      });
+      setFeatures(
+        [...updatedProject.project_wbs].sort((a, b) => a.order - b.order),
+      );
+    } catch {
+      toast({
+        variant: "destructive",
+        title: "Failed to update features.",
+      });
+    } finally {
+      setUpdatingFeatures(false);
+    }
+  };
+
+  const startEditFeature = (index: number) => {
+    const feature = features[index];
+    setEditingFeatureIndex(index);
+    setFeatureDraftName(feature?.name ?? "");
+    setFeatureDraftDescription(feature?.description ?? "");
+  };
+
+  const saveFeatureEdit = async () => {
+    if (editingFeatureIndex === null) return;
+    const trimmedName = featureDraftName.trim();
+    const trimmedDescription = featureDraftDescription.trim();
+    if (!trimmedName || !trimmedDescription) return;
+    const nextFeatures = features.map((f, idx) =>
+      idx === editingFeatureIndex
+        ? { ...f, name: trimmedName, description: trimmedDescription }
+        : f,
+    );
+    setEditingFeatureIndex(null);
+    await persistFeatures(nextFeatures);
+    toast({ title: "Feature updated." });
+  };
+
+  const moveFeature = async (index: number, direction: -1 | 1) => {
+    const newIndex = index + direction;
+    if (newIndex < 0 || newIndex >= features.length) return;
+    const nextFeatures = [...features];
+    const [removed] = nextFeatures.splice(index, 1);
+    nextFeatures.splice(newIndex, 0, removed);
+    await persistFeatures(nextFeatures);
+  };
+
+  const deleteFeature = async (index: number) => {
+    if (index < 0 || index >= features.length) return;
+    const nextFeatures = features.filter((_, i) => i !== index);
+    setEditingFeatureIndex(null);
+    await persistFeatures(nextFeatures);
+    toast({ title: "Feature deleted." });
+  };
+
+  const addFeature = async () => {
+    if (!parsedProject) return;
+    const today = new Date();
+    const end = new Date(today);
+    end.setDate(end.getDate() + 7);
+    const todayStr = today.toISOString().slice(0, 10);
+    const endStr = end.toISOString().slice(0, 10);
+    const newFeature: Phase = {
+      order: features.length,
+      name: "New feature",
+      description: "Describe this feature",
+      start_date: todayStr,
+      end_date: endStr,
+      tasks: [],
+    };
+    const nextFeatures = [...features, newFeature];
+    await persistFeatures(nextFeatures);
+    toast({ title: "Feature added." });
+  };
 
   return (
     <div>
@@ -338,32 +454,139 @@ function OverviewSection({
         </div>
       </div>
 
-      {parsedProject?.project_wbs?.length ? (
+      {features.length ? (
         <div className="mt-6 w-full">
           <div className="rounded-xl border border-border bg-card p-5">
-            <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-              <Layers className="size-4" />
-              High-level features
+            <div className="flex items-center justify-between gap-2 text-sm font-medium text-muted-foreground">
+              <div className="flex items-center gap-2">
+                <Layers className="size-4" />
+                High-level features
+              </div>
+              {canEditFeatures && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2.5 text-xs"
+                  onClick={addFeature}
+                  disabled={updatingFeatures}
+                >
+                  <Plus className="mr-1 size-3" />
+                  Add feature
+                </Button>
+              )}
             </div>
             <div className="mt-2">
               <Table className="text-sm">
                 <TableBody>
-                  {parsedProject.project_wbs
-                    .slice()
-                    .sort((a, b) => a.order - b.order)
-                    .map((phase, index) => (
+                  {features.map((phase, index) => {
+                    const isEditing = editingFeatureIndex === index;
+                    return (
                       <TableRow key={index}>
-                        <TableCell className="w-32 font-medium text-muted-foreground">
+                        <TableCell className="w-28 align-top text-xs font-medium text-muted-foreground">
                           Feature {index + 1}
                         </TableCell>
-                        <TableCell className="font-medium">
-                          {phase.name}
+                        <TableCell className="align-top">
+                          {canEditFeatures && isEditing ? (
+                            <div className="space-y-2">
+                              <Input
+                                value={featureDraftName}
+                                onChange={(e) =>
+                                  setFeatureDraftName(e.target.value)
+                                }
+                                placeholder="Feature name"
+                                className="h-8 text-sm"
+                                disabled={updatingFeatures}
+                              />
+                              <textarea
+                                className="w-full resize-none rounded-md border border-input bg-background px-2 py-1 text-xs text-foreground shadow-sm outline-none ring-offset-background placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                value={featureDraftDescription}
+                                onChange={(e) =>
+                                  setFeatureDraftDescription(e.target.value)
+                                }
+                                rows={3}
+                                disabled={updatingFeatures}
+                              />
+                              <div className="flex gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 px-2 text-xs"
+                                  onClick={() => setEditingFeatureIndex(null)}
+                                  disabled={updatingFeatures}
+                                >
+                                  Cancel
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  className="h-7 px-2 text-xs"
+                                  onClick={saveFeatureEdit}
+                                  disabled={updatingFeatures}
+                                >
+                                  Save
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="font-medium">{phase.name}</div>
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                {phase.description}
+                              </div>
+                            </>
+                          )}
                         </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {phase.description}
+                        <TableCell className="w-32 align-top text-right">
+                          {canEditFeatures && !isEditing && (
+                            <div className="flex justify-end gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                className="text-muted-foreground hover:text-foreground"
+                                onClick={() => moveFeature(index, -1)}
+                                disabled={index === 0 || updatingFeatures}
+                              >
+                                <ChevronUp className="size-3" />
+                                <span className="sr-only">Move up</span>
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                className="text-muted-foreground hover:text-foreground"
+                                onClick={() => moveFeature(index, 1)}
+                                disabled={
+                                  index === features.length - 1 ||
+                                  updatingFeatures
+                                }
+                              >
+                                <ChevronDown className="size-3" />
+                                <span className="sr-only">Move down</span>
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                className="text-muted-foreground hover:text-foreground"
+                                onClick={() => startEditFeature(index)}
+                                disabled={updatingFeatures}
+                              >
+                                <Pencil className="size-3" />
+                                <span className="sr-only">Edit feature</span>
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                className="text-destructive hover:text-destructive"
+                                onClick={() => void deleteFeature(index)}
+                                disabled={updatingFeatures}
+                              >
+                                <Trash2 className="size-3" />
+                                <span className="sr-only">Delete feature</span>
+                              </Button>
+                            </div>
+                          )}
                         </TableCell>
                       </TableRow>
-                    ))}
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>
@@ -382,8 +605,11 @@ function TasksSection({
   onTaskCompleted?: (
     phaseOrder: number,
     taskOrder: number,
+    completed: boolean,
   ) => Promise<void> | void;
 }) {
+  const { sessionToken } = useAuth();
+
   let parsedProject: Project | null = null;
   try {
     if (project.data) parsedProject = JSON.parse(project.data) as Project;
@@ -399,17 +625,49 @@ function TasksSection({
     phaseOrder: number;
     taskOrder: number;
     taskName: string;
+    completed: boolean;
   };
 
   const [pendingTask, setPendingTask] = useState<TaskRef | null>(null);
+  const [detailEvent, setDetailEvent] = useState<CalendarEvent | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
 
-  const handleRequestComplete = (task: TaskRef) => {
+  const projectSubtasks = useQuery(
+    api.tasks.listSubtasksForProject,
+    sessionToken
+      ? { token: sessionToken, projectId: project._id as Id<"projects"> }
+      : "skip",
+  );
+
+  const subtasksByKey = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        _id: string;
+        title: string;
+        completed: boolean;
+        createdAt: number;
+      }[]
+    >();
+    if (!projectSubtasks) return map;
+    for (const entry of projectSubtasks) {
+      const key = `${entry.phaseOrder}:${entry.taskOrder}`;
+      map.set(key, entry.subtasks);
+    }
+    return map;
+  }, [projectSubtasks]);
+
+  const handleRequestToggle = (task: TaskRef) => {
     setPendingTask(task);
   };
 
   const handleConfirm = async () => {
     if (!pendingTask) return;
-    await onTaskCompleted?.(pendingTask.phaseOrder, pendingTask.taskOrder);
+    await onTaskCompleted?.(
+      pendingTask.phaseOrder,
+      pendingTask.taskOrder,
+      !pendingTask.completed,
+    );
     setPendingTask(null);
   };
 
@@ -470,6 +728,7 @@ function TasksSection({
                       <TableHead>Task</TableHead>
                       <TableHead>Date</TableHead>
                       <TableHead>Time</TableHead>
+                      <TableHead className="w-20 text-right">Details</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -477,39 +736,104 @@ function TasksSection({
                       const isCompleted = Boolean(
                         (task as { completed?: boolean }).completed,
                       );
+                      const key = `${phase.order}:${task.order}`;
+                      const subtasksForTask = subtasksByKey.get(key) ?? [];
+
                       return (
-                        <TableRow
-                          key={taskIndex}
-                          className="cursor-pointer hover:bg-muted/40"
-                          onClick={() =>
-                            !isCompleted &&
-                            handleRequestComplete({
-                              phaseOrder: phase.order,
-                              taskOrder: task.order,
-                              taskName: task.name,
-                            })
-                          }
-                        >
-                          <TableCell className="w-10 align-middle">
-                            {isCompleted ? (
-                              <CheckCircle2 className="size-4 text-emerald-500" />
-                            ) : (
-                              <Circle className="size-4 text-muted-foreground" />
-                            )}
-                          </TableCell>
-                          <TableCell className="w-8 font-medium text-muted-foreground">
-                            {task.order + 1}
-                          </TableCell>
-                          <TableCell className="font-medium">
-                            {task.name}
-                          </TableCell>
-                          <TableCell className="text-muted-foreground">
-                            {task.date}
-                          </TableCell>
-                          <TableCell className="text-muted-foreground">
-                            {task.time}
-                          </TableCell>
-                        </TableRow>
+                        <Fragment key={key}>
+                          <TableRow
+                            className="cursor-pointer hover:bg-muted/40"
+                            onClick={() =>
+                              handleRequestToggle({
+                                phaseOrder: phase.order,
+                                taskOrder: task.order,
+                                taskName: task.name,
+                                completed: isCompleted,
+                              })
+                            }
+                          >
+                            <TableCell className="w-10 align-middle">
+                              {isCompleted ? (
+                                <CheckCircle2 className="size-4 text-emerald-500" />
+                              ) : (
+                                <Circle className="size-4 text-muted-foreground" />
+                              )}
+                            </TableCell>
+                            <TableCell className="w-8 font-medium text-muted-foreground">
+                              {task.order + 1}
+                            </TableCell>
+                            <TableCell className="font-medium">
+                              {task.name}
+                            </TableCell>
+                            <TableCell className="text-muted-foreground">
+                              {task.date}
+                            </TableCell>
+                            <TableCell className="text-muted-foreground">
+                              {task.time}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon-sm"
+                                className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const date = new Date(task.date + "T00:00:00");
+                                  const eventForDialog: CalendarEvent = {
+                                    id: `${project._id}-${phase.order}-${task.order}`,
+                                    projectId: project._id,
+                                    projectName:
+                                      project.projectName || project.summaryName,
+                                    phaseName: phase.name,
+                                    taskName: task.name,
+                                    date,
+                                    timeStr: task.time,
+                                    colorIndex: 0,
+                                    completed: isCompleted,
+                                    phaseOrder: phase.order,
+                                    taskOrder: task.order,
+                                  };
+                                  setDetailEvent(eventForDialog);
+                                  setDetailOpen(true);
+                                }}
+                              >
+                                <MoreVertical className="size-4" />
+                                <span className="sr-only">
+                                  View details and subtasks
+                                </span>
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                          {subtasksForTask.length > 0 && (
+                            <TableRow className="bg-muted/30">
+                              <TableCell colSpan={6} className="align-top">
+                                <div className="pl-8 space-y-1">
+                                  {subtasksForTask.map((subtask) => (
+                                    <div
+                                      key={subtask._id}
+                                      className="flex items-center gap-2 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/70"
+                                    >
+                                      {subtask.completed ? (
+                                        <CheckCircle2 className="size-3 text-emerald-500" />
+                                      ) : (
+                                        <Circle className="size-3" />
+                                      )}
+                                      <span
+                                        className={cn(
+                                          subtask.completed &&
+                                            "line-through text-muted-foreground/70",
+                                        )}
+                                      >
+                                        {subtask.title}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </Fragment>
                       );
                     })}
                   </TableBody>
@@ -522,21 +846,32 @@ function TasksSection({
       <AlertDialog open={!!pendingTask} onOpenChange={handleCancel}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Mark task as done?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {pendingTask?.completed
+                ? "Mark task as not done?"
+                : "Mark task as done?"}
+            </AlertDialogTitle>
             <AlertDialogDescription>
               {pendingTask
-                ? `Do you want to mark “${pendingTask.taskName}” as completed?`
+                ? pendingTask.completed
+                  ? `Do you want to mark “${pendingTask.taskName}” as not completed?`
+                  : `Do you want to mark “${pendingTask.taskName}” as completed?`
                 : null}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={handleCancel}>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleConfirm}>
-              Mark as done
+              {pendingTask?.completed ? "Mark as not done" : "Mark as done"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <TaskDetailDialog
+        event={detailEvent}
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+      />
     </div>
   );
 }
@@ -774,24 +1109,6 @@ function ChatSection({ project }: { project: ProjectData }) {
   );
 }
 
-function CalendarSection() {
-  return (
-    <div>
-      <h1 className="text-2xl font-bold tracking-tight">Calendar</h1>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Project timeline and milestones
-      </p>
-      <div className="mt-6 flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-16 text-muted-foreground">
-        <CalendarDays className="mb-3 size-10" />
-        <p className="text-sm font-medium">Calendar coming soon</p>
-        <p className="mt-1 text-xs">
-          View deadlines and milestones at a glance.
-        </p>
-      </div>
-    </div>
-  );
-}
-
 function SettingsSection() {
   return (
     <div>
@@ -820,6 +1137,7 @@ function SectionContent({
   onTaskCompleted?: (
     phaseOrder: number,
     taskOrder: number,
+    completed: boolean,
   ) => Promise<void> | void;
 }) {
   switch (section) {
@@ -833,8 +1151,6 @@ function SectionContent({
       return <ChatSection project={project} />;
     case "timeline":
       return <TimelineSection project={project} />;
-    case "calendar":
-      return <CalendarSection />;
     case "settings":
       return <SettingsSection />;
   }
@@ -928,7 +1244,11 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
     }
   })();
 
-  const handleTaskCompleted = async (phaseOrder: number, taskOrder: number) => {
+  const handleTaskCompleted = async (
+    phaseOrder: number,
+    taskOrder: number,
+    completed: boolean,
+  ) => {
     if (!sessionToken || !convexClient || !project) return;
 
     let parsed: Project;
@@ -947,7 +1267,7 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
         ? {
             ...phase,
             tasks: phase.tasks.map((task) =>
-              task.order === taskOrder ? { ...task, completed: true } : task,
+              task.order === taskOrder ? { ...task, completed } : task,
             ),
           }
         : phase,

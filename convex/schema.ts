@@ -55,4 +55,20 @@ export default defineSchema({
     reasoning: v.optional(v.string()),
     createdAt: v.number(),
   }).index("by_chatId", ["chatId"]),
+
+  tasks: defineTable({
+    projectId: v.id("projects"),
+    phaseOrder: v.number(),
+    taskOrder: v.number(),
+    title: v.string(),
+    description: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_project_phase_task", ["projectId", "phaseOrder", "taskOrder"]),
+
+  subtasks: defineTable({
+    taskId: v.id("tasks"),
+    title: v.string(),
+    completed: v.boolean(),
+    createdAt: v.number(),
+  }).index("by_taskId", ["taskId"]),
 });
