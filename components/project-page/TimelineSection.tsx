@@ -655,7 +655,13 @@ export function TimelineSection({ project }: TimelineSectionProps) {
                                 {task.completed ? "Done" : "Pending"}
                               </span>
                               <span>Due: {task.date}</span>
-                              {task.time && <span>{task.time}</span>}
+                              {task.time && (
+                                <span>
+                                  {(task as { endTime?: string }).endTime
+                                    ? `${task.time} – ${(task as { endTime?: string }).endTime}`
+                                    : task.time}
+                                </span>
+                              )}
                             </div>
                           </div>
                         </li>

@@ -184,7 +184,9 @@ export function TasksSection({ project, onTaskCompleted }: TasksSectionProps) {
                               {task.date}
                             </TableCell>
                             <TableCell className="text-muted-foreground">
-                              {task.time}
+                              {(task as { endTime?: string }).endTime
+                                ? `${task.time} – ${(task as { endTime?: string }).endTime}`
+                                : task.time}
                             </TableCell>
                             <TableCell className="text-right">
                               <Button
@@ -195,6 +197,7 @@ export function TasksSection({ project, onTaskCompleted }: TasksSectionProps) {
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   const date = new Date(task.date + "T00:00:00");
+                                  const taskWithEnd = task as { endTime?: string };
                                   const eventForDialog: CalendarEvent = {
                                     id: `${project._id}-${phase.order}-${task.order}`,
                                     projectId: project._id,
@@ -204,6 +207,9 @@ export function TasksSection({ project, onTaskCompleted }: TasksSectionProps) {
                                     taskName: task.name,
                                     date,
                                     timeStr: task.time,
+                                    ...(taskWithEnd.endTime
+                                      ? { endTimeStr: taskWithEnd.endTime }
+                                      : {}),
                                     colorIndex: 0,
                                     completed: isCompleted,
                                     phaseOrder: phase.order,

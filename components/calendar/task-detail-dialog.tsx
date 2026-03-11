@@ -31,7 +31,8 @@ import type { Id } from "@/convex/_generated/dataModel";
 import {
   type CalendarEvent,
   PROJECT_COLORS,
-  formatTime12h,
+  normalizeTimeString,
+  parseTimeToHour,
 } from "@/lib/calendar-utils";
 
 interface TaskDetailDialogProps {
@@ -52,6 +53,9 @@ export function TaskDetailDialog({
   const [isGenerating, setIsGenerating] = useState(false);
   const [newSubtaskTitle, setNewSubtaskTitle] = useState("");
   const [isAddingSubtask, setIsAddingSubtask] = useState(false);
+  const [taskStartTime, setTaskStartTime] = useState(event?.timeStr ?? "");
+  const [taskEndTime, setTaskEndTime] = useState(event?.endTimeStr ?? "");
+  const [isUpdatingTime, setIsUpdatingTime] = useState(false);
 
   const ensureTask = useMutation(api.tasks.ensureTaskForProjectWbsTask);
   const createSubtasks = useMutation(api.tasks.createSubtasks);
@@ -59,6 +63,7 @@ export function TaskDetailDialog({
     api.tasks.toggleSubtaskCompleted,
   );
   const deleteSubtaskMut = useMutation(api.tasks.deleteSubtask);
+  const updateTaskTime = useMutation(api.aiTools.updateTaskTime);
 
   const subtasks = useQuery(
     api.tasks.listSubtasks,
@@ -102,6 +107,11 @@ export function TaskDetailDialog({
     };
   }, [open, event, sessionToken, ensureTask]);
 
+  useEffect(() => {
+    setTaskStartTime(event?.timeStr ?? "");
+    setTaskEndTime(event?.endTimeStr ?? "");
+  }, [event]);
+
   const color = useMemo(
     () =>
       event ? PROJECT_COLORS[event.colorIndex] : PROJECT_COLORS[0],
@@ -127,6 +137,80 @@ export function TaskDetailDialog({
         title: "Failed to update subtask.",
       });
     }
+  };
+
+  const handleUpdateTime = async () => {
+    if (!sessionToken || !event || isUpdatingTime) return;
+    const startTrimmed = taskStartTime.trim();
+    if (!startTrimmed) {
+      toast({
+        variant: "destructive",
+        title: "Enter a start time (e.g. 9:00 AM).",
+      });
+      return;
+    }
+    const normalizedStart = normalizeTimeString(startTrimmed);
+    if (!normalizedStart) {
+      toast({
+        variant: "destructive",
+        title: "Start time format is invalid. Use e.g. 9:00 AM or 9am.",
+      });
+      return;
+    }
+    const endTrimmed = taskEndTime.trim();
+    let normalizedEnd: string | undefined;
+    if (endTrimmed) {
+      normalizedEnd = normalizeTimeString(endTrimmed) ?? undefined;
+      if (!normalizedEnd) {
+        toast({
+          variant: "destructive",
+          title: "End time format is invalid. Use e.g. 10:00 AM or 10am.",
+        });
+        return;
+      }
+      if (parseTimeToHour(normalizedEnd) <= parseTimeToHour(normalizedStart)) {
+        toast({
+          variant: "destructive",
+          title: "End time must be after start time.",
+        });
+        return;
+      }
+    }
+    setIsUpdatingTime(true);
+    try {
+      await updateTaskTime({
+        token: sessionToken,
+        projectId: event.projectId as Id<"projects">,
+        phaseOrder: event.phaseOrder,
+        taskOrder: event.taskOrder,
+        newStartTime: normalizedStart,
+        newEndTime: normalizedEnd,
+      });
+      setTaskStartTime(normalizedStart);
+      setTaskEndTime(normalizedEnd ?? "");
+      toast({ title: "Task time updated." });
+    } catch {
+      toast({
+        variant: "destructive",
+        title: "Failed to update task time.",
+      });
+    } finally {
+      setIsUpdatingTime(false);
+    }
+  };
+
+  const handleStartTimeBlur = () => {
+    const t = taskStartTime.trim();
+    if (!t) return;
+    const normalized = normalizeTimeString(t);
+    if (normalized) setTaskStartTime(normalized);
+  };
+
+  const handleEndTimeBlur = () => {
+    const t = taskEndTime.trim();
+    if (!t) return;
+    const normalized = normalizeTimeString(t);
+    if (normalized) setTaskEndTime(normalized);
   };
 
   const handleGenerateSubtasks = async () => {
@@ -261,8 +345,60 @@ export function TaskDetailDialog({
               </span>
             </div>
             <div className="flex items-center gap-3 text-sm">
-              <Clock className="size-4 text-muted-foreground" />
-              <span>{formatTime12h(event.timeStr)}</span>
+              <Clock className="size-4 shrink-0 text-muted-foreground" />
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-muted-foreground">Start</span>
+                  <Input
+                    value={taskStartTime}
+                    onChange={(e) => setTaskStartTime(e.target.value)}
+                    onBlur={handleStartTimeBlur}
+                    placeholder="9:00 AM"
+                    className={cn(
+                      "h-8 w-24 text-xs",
+                      taskStartTime.trim() &&
+                        !normalizeTimeString(taskStartTime.trim()) &&
+                      "border-destructive focus-visible:ring-destructive",
+                    )}
+                    aria-invalid={
+                      !!taskStartTime.trim() &&
+                      !normalizeTimeString(taskStartTime.trim())
+                    }
+                  />
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-muted-foreground">End</span>
+                  <Input
+                    value={taskEndTime}
+                    onChange={(e) => setTaskEndTime(e.target.value)}
+                    onBlur={handleEndTimeBlur}
+                    placeholder="10:00 AM (optional)"
+                    className={cn(
+                      "h-8 w-24 text-xs",
+                      taskEndTime.trim() &&
+                        !normalizeTimeString(taskEndTime.trim()) &&
+                      "border-destructive focus-visible:ring-destructive",
+                    )}
+                    aria-invalid={
+                      !!taskEndTime.trim() &&
+                      !normalizeTimeString(taskEndTime.trim())
+                    }
+                  />
+                </div>
+                <Button
+                  type="button"
+                  size="xs"
+                  className="h-8 px-2 text-[11px]"
+                  onClick={handleUpdateTime}
+                  disabled={
+                    isUpdatingTime ||
+                    !taskStartTime.trim() ||
+                    !sessionToken
+                  }
+                >
+                  Save
+                </Button>
+              </div>
             </div>
             <div className="flex items-center gap-3 text-sm">
               <FolderOpen className="size-4 text-muted-foreground" />

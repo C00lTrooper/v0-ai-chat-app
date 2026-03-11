@@ -112,7 +112,9 @@ export function ProjectWbs({ project }: ProjectWbsProps) {
                           {task.name}
                         </TableCell>
                         <TableCell className="w-40 text-right text-muted-foreground">
-                          {`${formatDate(task.date)} ${task.time}`}
+                          {(task as { endTime?: string }).endTime
+                            ? `${formatDate(task.date)} ${task.time} – ${(task as { endTime?: string }).endTime}`
+                            : `${formatDate(task.date)} ${task.time}`}
                         </TableCell>
                       </TableRow>
                     );

@@ -25,8 +25,19 @@ export default function ChatPage() {
 
   const initialChatId = searchParams.get("chatId");
   const initialProjectId = searchParams.get("projectId");
+
+  const getPersistedChatId = (): Id<"chats"> | null => {
+    if (typeof window === "undefined") return null;
+    const stored = window.localStorage.getItem("lastOpenedChatId");
+    return stored ? (stored as Id<"chats">) : null;
+  };
+
   const [activeChatId, setActiveChatId] = useState<Id<"chats"> | null>(
-    initialChatId ? (initialChatId as Id<"chats">) : null,
+    initialChatId
+      ? (initialChatId as Id<"chats">)
+      : initialProjectId
+        ? null
+        : getPersistedChatId(),
   );
   const [projectToLinkId, setProjectToLinkId] = useState<Id<"projects"> | null>(
     initialProjectId ? (initialProjectId as Id<"projects">) : null,
@@ -91,11 +102,31 @@ export default function ChatPage() {
   }, [projectDataForChat]);
 
   useEffect(() => {
+    if (activeChatId) {
+      window.localStorage.setItem("lastOpenedChatId", activeChatId);
+    }
+  }, [activeChatId]);
+
+  useEffect(() => {
+    if (activeChatId && !searchParams.get("chatId")) {
+      router.replace(`/chat?chatId=${activeChatId}`, { scroll: false });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
     const chatIdParam = searchParams.get("chatId");
     const projectIdParam = searchParams.get("projectId");
 
     if (chatIdParam) {
       setActiveChatId(chatIdParam as Id<"chats">);
+    } else if (!projectIdParam && !chatIdParam) {
+      const persisted = getPersistedChatId();
+      if (persisted) {
+        setActiveChatId(persisted);
+      } else {
+        setActiveChatId(null);
+      }
     } else {
       setActiveChatId(null);
     }
@@ -198,6 +229,7 @@ export default function ChatPage() {
   const handleNewChat = useCallback(() => {
     setActiveChatId(null);
     setProjectToLinkId(null);
+    window.localStorage.removeItem("lastOpenedChatId");
     if (searchParams.get("chatId")) {
       router.replace("/chat", { scroll: false });
     }

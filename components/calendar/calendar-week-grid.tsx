@@ -11,6 +11,7 @@ import {
   formatTime12h,
   formatHour,
   parseTimeToHour,
+  eventDurationHours,
 } from "@/lib/calendar-utils";
 
 const START_HOUR = 6;
@@ -104,11 +105,16 @@ export function CalendarWeekGrid({
                 {/* Events */}
                 {dayEvents.map((evt) => {
                   const color = PROJECT_COLORS[evt.colorIndex];
-                  const hour = parseTimeToHour(evt.timeStr);
-                  const top = (hour - START_HOUR) * HOUR_HEIGHT;
+                  const startHour = parseTimeToHour(evt.timeStr);
+                  const durationHours = eventDurationHours(evt);
+                  const top = (startHour - START_HOUR) * HOUR_HEIGHT;
+                  const height = Math.max(HOUR_HEIGHT / 2, durationHours * HOUR_HEIGHT) - 4;
                   if (top < 0 || top >= HOURS.length * HOUR_HEIGHT) return null;
 
                   const isCompleted = evt.completed;
+                  const timeLabel = evt.endTimeStr
+                    ? `${formatTime12h(evt.timeStr)} – ${formatTime12h(evt.endTimeStr)}`
+                    : formatTime12h(evt.timeStr);
 
                   return (
                     <button
@@ -116,7 +122,7 @@ export function CalendarWeekGrid({
                       className="absolute inset-x-0.5 z-10 flex flex-col overflow-hidden rounded px-1.5 py-0.5 text-left text-[11px] leading-tight transition-opacity hover:opacity-80"
                       style={{
                         top,
-                        height: HOUR_HEIGHT - 4,
+                        height,
                         backgroundColor: isCompleted
                           ? `${color.hex}10`
                           : `${color.hex}20`,
@@ -128,11 +134,9 @@ export function CalendarWeekGrid({
                         e.stopPropagation();
                         onEventClick(evt);
                       }}
-                      title={`${formatTime12h(evt.timeStr)} · ${evt.taskName}`}
+                      title={`${timeLabel} · ${evt.taskName}`}
                     >
-                      <span className="font-semibold">
-                        {formatTime12h(evt.timeStr)}
-                      </span>
+                      <span className="font-semibold">{timeLabel}</span>
                       <span
                         className={`truncate ${
                           isCompleted ? "line-through decoration-emerald-500/70" : ""

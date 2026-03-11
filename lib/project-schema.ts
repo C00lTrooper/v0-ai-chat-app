@@ -23,6 +23,7 @@ export const ProjectSchema = z.object({
             name: z.string().min(1),
             date: z.string().min(1),
             time: z.string().min(1),
+            endTime: z.string().optional(),
             completed: z.boolean().optional().default(false),
           })
         ),

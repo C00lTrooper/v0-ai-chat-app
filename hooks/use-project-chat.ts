@@ -53,6 +53,7 @@ export function useProjectChat({
   const createTaskMutation = useMutation(api.aiTools.createTask)
   const updateTaskStatusMutation = useMutation(api.aiTools.updateTaskStatus)
   const updateTaskDueDateMutation = useMutation(api.aiTools.updateTaskDueDate)
+  const updateTaskTimeMutation = useMutation(api.aiTools.updateTaskTime)
   const createCalendarEventMutation = useMutation(api.aiTools.createCalendarEvent)
   const moveCalendarEventMutation = useMutation(api.aiTools.moveCalendarEvent)
 
@@ -208,6 +209,7 @@ export function useProjectChat({
               title: args.title as string,
               dueDate: args.dueDate as string,
               time: (args.time as string) || undefined,
+              endTime: (args.endTime as string) || undefined,
             })
             resultMessage = `Task "${result.title}" created successfully.`
             linkedEntity = {
@@ -242,8 +244,36 @@ export function useProjectChat({
               phaseOrder: args.phaseOrder as number,
               taskOrder: args.taskOrder as number,
               newDate: args.newDate as string,
+              newStartTime: (args.newStartTime as string) || undefined,
+              newEndTime: (args.newEndTime as string) || undefined,
             })
-            resultMessage = `Task "${result.title}" rescheduled to ${result.newDate}.`
+            const timePart = result.newStartTime
+              ? result.newEndTime
+                ? ` at ${result.newStartTime} – ${result.newEndTime}`
+                : ` at ${result.newStartTime}`
+              : ""
+            resultMessage = `Task "${result.title}" rescheduled to ${result.newDate}${timePart}.`
+            linkedEntity = {
+              type: "task",
+              id: `${args.projectId}:${args.phaseOrder}:${args.taskOrder}`,
+              name: result.title,
+              projectId: args.projectId as string,
+            }
+            break
+          }
+          case "updateTaskTime": {
+            const result = await updateTaskTimeMutation({
+              token: sessionToken,
+              projectId: args.projectId as Id<"projects">,
+              phaseOrder: args.phaseOrder as number,
+              taskOrder: args.taskOrder as number,
+              newStartTime: args.newStartTime as string,
+              newEndTime: (args.newEndTime as string) || undefined,
+            })
+            const timeStr = result.newEndTime
+              ? `${result.newStartTime} – ${result.newEndTime}`
+              : result.newStartTime
+            resultMessage = `Task "${result.title}" time updated to ${timeStr}.`
             linkedEntity = {
               type: "task",
               id: `${args.projectId}:${args.phaseOrder}:${args.taskOrder}`,
@@ -324,6 +354,7 @@ export function useProjectChat({
       createTaskMutation,
       updateTaskStatusMutation,
       updateTaskDueDateMutation,
+      updateTaskTimeMutation,
       createCalendarEventMutation,
       moveCalendarEventMutation,
       sendMessageMutation,

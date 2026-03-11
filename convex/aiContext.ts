@@ -62,6 +62,8 @@ export const getContext = query({
         taskOrder: number;
         title: string;
         dueDate: string;
+        startTime: string;
+        endTime?: string;
         completed: boolean;
       }> = [];
 
@@ -77,6 +79,8 @@ export const getContext = query({
               taskOrder: task.order,
               title: task.name,
               dueDate: task.date,
+              startTime: task.time || "9:00 AM",
+              endTime: task.endTime || undefined,
               completed: Boolean(task.completed),
             });
           }

@@ -48,6 +48,8 @@ export interface AiTaskSummary {
   taskOrder: number;
   title: string;
   dueDate: string;
+  startTime: string;
+  endTime?: string;
   completed: boolean;
 }
 
@@ -62,12 +64,22 @@ export interface AiCalendarEvent {
 
 export function buildToolConfirmationText(name: string, args: Record<string, unknown>): string {
   switch (name) {
-    case "createTask":
-      return `Create task **"${args.title}"** in project **${args.projectName}** (phase: ${args.phaseName}), due **${args.dueDate}**`;
+    case "createTask": {
+      const timePart = args.time ? ` at **${args.time}**` : "";
+      const endPart = args.endTime ? ` – **${args.endTime}**` : "";
+      return `Create task **"${args.title}"** in project **${args.projectName}** (phase: ${args.phaseName}), due **${args.dueDate}**${timePart}${endPart}`;
+    }
     case "updateTaskStatus":
       return `Mark task **"${args.taskName}"** in project **${args.projectName}** as **${args.completed ? "complete" : "incomplete"}**`;
-    case "updateTaskDueDate":
-      return `Reschedule task **"${args.taskName}"** in project **${args.projectName}** to **${args.newDate}**`;
+    case "updateTaskDueDate": {
+      const dtTimePart = args.newStartTime ? ` at **${args.newStartTime}**` : "";
+      const dtEndPart = args.newEndTime ? ` – **${args.newEndTime}**` : "";
+      return `Reschedule task **"${args.taskName}"** in project **${args.projectName}** to **${args.newDate}**${dtTimePart}${dtEndPart}`;
+    }
+    case "updateTaskTime":
+      return args.newEndTime
+        ? `Update task **"${args.taskName}"** in project **${args.projectName}** to **${args.newStartTime}** – **${args.newEndTime}**`
+        : `Update task **"${args.taskName}"** in project **${args.projectName}** to **${args.newStartTime}**`;
     case "createCalendarEvent":
       return `Create calendar event **"${args.title}"** from **${args.startDate}** to **${args.endDate}**${args.projectName ? ` (linked to ${args.projectName})` : ""}`;
     case "moveCalendarEvent":

@@ -16,7 +16,8 @@ const TOOLS = [
           phaseName: { type: "string", description: "The phase name (for display)" },
           title: { type: "string", description: "The task title" },
           dueDate: { type: "string", description: "Due date in YYYY-MM-DD format" },
-          time: { type: "string", description: "Estimated time, e.g. '2 hours'" },
+          time: { type: "string", description: "Start time, e.g. 9:00 AM" },
+          endTime: { type: "string", description: "Optional end time, e.g. 10:00 AM" },
         },
         required: ["projectId", "projectName", "phaseOrder", "phaseName", "title", "dueDate"],
       },
@@ -47,7 +48,7 @@ const TOOLS = [
     function: {
       name: "updateTaskDueDate",
       description:
-        "Reschedule a task to a new due date. Use when the user asks to move, postpone, or reschedule a task.",
+        "Reschedule a task to a new due date and optionally update its time. Use when the user asks to move, postpone, or reschedule a task.",
       parameters: {
         type: "object",
         properties: {
@@ -57,8 +58,31 @@ const TOOLS = [
           taskOrder: { type: "number", description: "Task order number" },
           taskName: { type: "string", description: "Task name (for display)" },
           newDate: { type: "string", description: "New due date in YYYY-MM-DD format" },
+          newStartTime: { type: "string", description: "Optional new start time, e.g. 2:00 PM" },
+          newEndTime: { type: "string", description: "Optional new end time, e.g. 3:00 PM" },
         },
         required: ["projectId", "projectName", "phaseOrder", "taskOrder", "taskName", "newDate"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "updateTaskTime",
+      description:
+        "Set a task's start and optional end time (e.g. 9:00 AM, 10:30 AM). Use when the user asks to change when a task is scheduled during the day.",
+      parameters: {
+        type: "object",
+        properties: {
+          projectId: { type: "string", description: "The project ID" },
+          projectName: { type: "string", description: "The project name" },
+          phaseOrder: { type: "number", description: "Phase order number" },
+          taskOrder: { type: "number", description: "Task order number" },
+          taskName: { type: "string", description: "Task name (for display)" },
+          newStartTime: { type: "string", description: "Start time, e.g. 9:00 AM" },
+          newEndTime: { type: "string", description: "Optional end time, e.g. 10:00 AM" },
+        },
+        required: ["projectId", "projectName", "phaseOrder", "taskOrder", "taskName", "newStartTime"],
       },
     },
   },
@@ -117,10 +141,12 @@ function buildSystemPrompt(context: AiContext): string {
     })),
   );
 
-  const taskLines = allTasks.map(
-    (t) =>
-      `  - [${t.completed ? "x" : " "}] {{task:${t.projectId}:${t.phaseOrder}:${t.taskOrder}:${t.title}}} — Project: ${t.projectName}, Phase ${t.phaseOrder} (${t.phaseName}), Due: ${t.dueDate}`,
-  );
+  const taskLines = allTasks.map((t) => {
+    const timeRange = t.endTime
+      ? `${t.startTime} – ${t.endTime}`
+      : t.startTime;
+    return `  - [${t.completed ? "x" : " "}] {{task:${t.projectId}:${t.phaseOrder}:${t.taskOrder}:${t.title}}} — Project: ${t.projectName}, Phase ${t.phaseOrder} (${t.phaseName}), Due: ${t.dueDate}, Time: ${timeRange}`;
+  });
 
   const eventLines = context.calendarEvents.map(
     (e) =>
@@ -155,7 +181,9 @@ ${eventLines.length > 0 ? eventLines.join("\n") : "  (no calendar events yet)"}
 6. Never expose raw database IDs in plain text. Always wrap them in the reference format above so they render as clickable links.
 7. Be concise and helpful. Use markdown for formatting.
 8. When creating tasks, pick the most relevant existing phase. If the user doesn't specify, choose the best match.
-9. Dates should be in YYYY-MM-DD format for tool calls.`;
+9. Dates should be in YYYY-MM-DD format for tool calls.
+10. Times should be in 12-hour format (e.g. "9:00 AM", "2:30 PM") for tool calls. Every task has a startTime; endTime is optional.
+11. When the user asks about scheduled times (e.g. "what do I have at 3pm?"), use the startTime/endTime data above to answer. When moving a task to a new time, use updateTaskTime (same day) or updateTaskDueDate with newStartTime/newEndTime (different day).`;
 }
 
 export async function POST(request: Request) {

@@ -39,6 +39,7 @@ interface WbsTask {
   name: string;
   date: string;
   time: string;
+  endTime?: string;
   completed?: boolean;
 }
 
@@ -70,6 +71,7 @@ export const createTask = mutation({
     title: v.string(),
     dueDate: v.string(),
     time: v.optional(v.string()),
+    endTime: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const user = await authenticateUser(ctx, args.token);
@@ -85,6 +87,7 @@ export const createTask = mutation({
       name: args.title,
       date: args.dueDate,
       time: args.time || "9:00 AM",
+      ...(args.endTime ? { endTime: args.endTime } : {}),
       completed: false,
     };
     phase.tasks.push(newTask);
@@ -148,6 +151,8 @@ export const updateTaskDueDate = mutation({
     phaseOrder: v.number(),
     taskOrder: v.number(),
     newDate: v.string(),
+    newStartTime: v.optional(v.string()),
+    newEndTime: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const user = await authenticateUser(ctx, args.token);
@@ -161,13 +166,64 @@ export const updateTaskDueDate = mutation({
     if (!task) throw new Error("Task not found");
 
     task.date = args.newDate;
+    if (args.newStartTime) task.time = args.newStartTime;
+    if (args.newEndTime !== undefined) {
+      task.endTime = args.newEndTime || undefined;
+    }
 
     await ctx.db.patch(args.projectId, {
       data: JSON.stringify(parsed),
       updatedAt: Date.now(),
     });
 
-    return { title: task.name, newDate: args.newDate };
+    return {
+      title: task.name,
+      newDate: args.newDate,
+      newStartTime: args.newStartTime ?? null,
+      newEndTime: args.newEndTime ?? null,
+    };
+  },
+});
+
+export const updateTaskTime = mutation({
+  args: {
+    token: v.string(),
+    projectId: v.id("projects"),
+    phaseOrder: v.number(),
+    taskOrder: v.number(),
+    newStartTime: v.string(),
+    newEndTime: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const user = await authenticateUser(ctx, args.token);
+    const project = await assertProjectAccess(ctx, user._id, args.projectId);
+
+    const parsed = parseProjectData(project.data);
+    const phase = parsed.project_wbs.find((p) => p.order === args.phaseOrder);
+    if (!phase) throw new Error("Phase not found");
+
+    const task = phase.tasks.find((t) => t.order === args.taskOrder);
+    if (!task) throw new Error("Task not found");
+
+    task.time = args.newStartTime;
+    if (args.newEndTime !== undefined) {
+      if (args.newEndTime.trim() === "") {
+        delete task.endTime;
+      } else {
+        task.endTime = args.newEndTime.trim();
+      }
+    }
+
+    await ctx.db.patch(args.projectId, {
+      data: JSON.stringify(parsed),
+      updatedAt: Date.now(),
+    });
+
+    return {
+      title: task.name,
+      newStartTime: args.newStartTime,
+      newEndTime: args.newEndTime ?? null,
+    };
   },
 });
 

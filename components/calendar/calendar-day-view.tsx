@@ -8,6 +8,7 @@ import {
   formatTime12h,
   formatHour,
   parseTimeToHour,
+  eventDurationHours,
 } from "@/lib/calendar-utils";
 
 const START_HOUR = 6;
@@ -71,11 +72,16 @@ export function CalendarDayView({
           {/* Events */}
           {dayEvents.map((evt) => {
             const color = PROJECT_COLORS[evt.colorIndex];
-            const hour = parseTimeToHour(evt.timeStr);
-            const top = (hour - START_HOUR) * HOUR_HEIGHT;
+            const startHour = parseTimeToHour(evt.timeStr);
+            const durationHours = eventDurationHours(evt);
+            const top = (startHour - START_HOUR) * HOUR_HEIGHT;
+            const height = Math.max(HOUR_HEIGHT / 2, durationHours * HOUR_HEIGHT) - 4;
             if (top < 0 || top >= HOURS.length * HOUR_HEIGHT) return null;
 
             const isCompleted = evt.completed;
+            const timeLabel = evt.endTimeStr
+              ? `${formatTime12h(evt.timeStr)} – ${formatTime12h(evt.endTimeStr)}`
+              : formatTime12h(evt.timeStr);
 
             return (
               <button
@@ -84,7 +90,7 @@ export function CalendarDayView({
                 style={{
                   top,
                   left: "4.5rem",
-                  height: HOUR_HEIGHT - 4,
+                  height,
                   backgroundColor: isCompleted ? `${color.hex}10` : `${color.hex}18`,
                   borderLeft: `4px solid ${color.hex}`,
                   opacity: isCompleted ? 0.6 : 1,
@@ -101,7 +107,7 @@ export function CalendarDayView({
                     {evt.taskName}
                   </span>
                   <span className="text-xs text-muted-foreground">
-                    {formatTime12h(evt.timeStr)} · {evt.phaseName}
+                    {timeLabel} · {evt.phaseName}
                   </span>
                 </div>
               </button>

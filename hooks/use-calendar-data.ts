@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useMemo } from "react";
+import { useQuery } from "convex/react";
 import { useAuth } from "@/components/auth-provider";
-import { convexClient } from "@/lib/convex";
 import { api } from "@/convex/_generated/api";
 import type { CalendarEvent, CalendarProject } from "@/lib/calendar-utils";
 
@@ -11,6 +11,7 @@ interface ProjectWbsTask {
   name: string;
   date: string;
   time: string;
+  endTime?: string;
   completed?: boolean;
 }
 
@@ -46,54 +47,38 @@ interface RawCalendarEvent {
 
 export function useCalendarData() {
   const { sessionToken } = useAuth();
-  const [rawProjects, setRawProjects] = useState<RawProject[]>([]);
-  const [rawCalendarEvents, setRawCalendarEvents] = useState<RawCalendarEvent[]>([]);
-  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (!sessionToken || !convexClient) {
-      setLoading(false);
-      return;
-    }
+  const rawProjects = useQuery(
+    api.projects.listWithTasks,
+    sessionToken ? { token: sessionToken } : "skip",
+  );
 
-    let cancelled = false;
-    setLoading(true);
+  const contextResult = useQuery(
+    api.aiContext.getContext,
+    sessionToken ? { token: sessionToken } : "skip",
+  );
 
-    void (async () => {
-      try {
-        const [projectsResult, contextResult] = await Promise.all([
-          convexClient.query(api.projects.listWithTasks, { token: sessionToken }),
-          convexClient.query(api.aiContext.getContext, { token: sessionToken }),
-        ]);
-        if (!cancelled) {
-          setRawProjects(projectsResult);
-          setRawCalendarEvents(
-            contextResult.calendarEvents.map((e) => ({
-              _id: e.id,
-              title: e.title,
-              startDate: e.startDate,
-              endDate: e.endDate,
-              projectId: e.projectId,
-            })),
-          );
-        }
-      } catch {
-        // silently fail
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
+  const rawCalendarEvents: RawCalendarEvent[] = useMemo(() => {
+    if (!contextResult?.calendarEvents) return [];
+    return contextResult.calendarEvents.map((e) => ({
+      _id: e.id,
+      title: e.title,
+      startDate: e.startDate,
+      endDate: e.endDate,
+      projectId: e.projectId,
+    }));
+  }, [contextResult]);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [sessionToken]);
+  const loading =
+    (sessionToken && rawProjects === undefined) ||
+    (sessionToken && contextResult === undefined);
 
   const { projects, events } = useMemo(() => {
+    const projectsList: RawProject[] = Array.isArray(rawProjects) ? rawProjects : [];
     const projects: CalendarProject[] = [];
     const events: CalendarEvent[] = [];
 
-    rawProjects.forEach((rp, idx) => {
+    projectsList.forEach((rp, idx) => {
       const colorIndex = idx % 8;
       projects.push({
         _id: rp._id,
@@ -118,6 +103,7 @@ export function useCalendarData() {
               taskName: task.name,
               date: parsed,
               timeStr: task.time,
+              ...(task.endTime ? { endTimeStr: task.endTime } : {}),
               colorIndex,
               completed: Boolean(task.completed),
               phaseOrder: phase.order,
