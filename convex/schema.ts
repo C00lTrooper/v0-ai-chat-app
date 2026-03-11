@@ -71,4 +71,24 @@ export default defineSchema({
     completed: v.boolean(),
     createdAt: v.number(),
   }).index("by_taskId", ["taskId"]),
+
+  budgetCategories: defineTable({
+    userId: v.id("users"),
+    name: v.string(),
+    color: v.string(),
+    createdAt: v.number(),
+  }).index("by_userId", ["userId"]),
+
+  transactions: defineTable({
+    userId: v.id("users"),
+    title: v.string(),
+    amount: v.number(),
+    type: v.union(v.literal("income"), v.literal("expense")),
+    categoryId: v.id("budgetCategories"),
+    projectId: v.optional(v.id("projects")),
+    date: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_userId", ["userId"])
+    .index("by_userId_and_date", ["userId", "date"]),
 });

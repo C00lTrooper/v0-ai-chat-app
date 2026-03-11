@@ -12,6 +12,7 @@ import {
   Sun,
   CircleUser,
   Home,
+  Wallet,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -102,7 +103,7 @@ export function ChatHeader({
         <nav className="flex items-center gap-1" aria-label="App navigation">
           <Select
             value={
-              pathname === "/chat" || pathname === "/calendar"
+              pathname === "/chat" || pathname === "/calendar" || pathname === "/budget"
                 ? pathname
                 : "/chat"
             }
@@ -125,6 +126,13 @@ export function ChatHeader({
               >
                 <CalendarDays className="size-4" />
                 Calendar
+              </SelectItem>
+              <SelectItem
+                value="/budget"
+                className="cursor-pointer gap-2 py-2.5"
+              >
+                <Wallet className="size-4" />
+                Budget
               </SelectItem>
             </SelectContent>
           </Select>
@@ -163,6 +171,24 @@ export function ChatHeader({
               >
                 <CalendarDays className="size-3.5" />
                 Calendar
+              </Link>
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1.5 px-3 text-sm h-8"
+              asChild
+            >
+              <Link
+                href="/budget"
+                className={`flex items-center gap-1.5 truncate text-sm ${
+                  pathname === "/budget"
+                    ? "text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Wallet className="size-3.5" />
+                Budget
               </Link>
             </Button>
           </div>
