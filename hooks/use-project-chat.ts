@@ -5,12 +5,21 @@ import { useQuery, useMutation } from "convex/react"
 import { api } from "@/convex/_generated/api"
 import { useAuth } from "@/components/auth-provider"
 import type { Id } from "@/convex/_generated/dataModel"
+import type { AiContext, ToolCallWithStatus, LinkedEntity } from "@/lib/ai-tools"
+import { buildToolConfirmationText } from "@/lib/ai-tools"
 
 export interface Message {
   id: string
   role: "user" | "assistant"
   content: string
   reasoning?: string
+  toolCalls?: ToolCallWithStatus[]
+}
+
+interface StreamingToolCall {
+  id: string
+  name: string
+  arguments: string
 }
 
 export function useProjectChat({
@@ -18,11 +27,15 @@ export function useProjectChat({
   projectToLink,
   onProjectLinked,
   useClaudeFirstPrompt,
+  aiContext,
+  currentProjectId,
 }: {
   activeChatId: Id<"chats"> | null
   projectToLink: Id<"projects"> | null
   onProjectLinked: (chatId: Id<"chats">) => void
   useClaudeFirstPrompt: boolean
+  aiContext?: AiContext | null
+  currentProjectId?: string | null
 }) {
   const { sessionToken } = useAuth()
 
@@ -37,16 +50,25 @@ export function useProjectChat({
   const createChatMutation = useMutation(api.chats.createChat)
   const renameChatMutation = useMutation(api.chats.renameChat)
 
-  // ---- Local state for new-project chat (before project exists) ----------
+  const createTaskMutation = useMutation(api.aiTools.createTask)
+  const updateTaskStatusMutation = useMutation(api.aiTools.updateTaskStatus)
+  const updateTaskDueDateMutation = useMutation(api.aiTools.updateTaskDueDate)
+  const createCalendarEventMutation = useMutation(api.aiTools.createCalendarEvent)
+  const moveCalendarEventMutation = useMutation(api.aiTools.moveCalendarEvent)
+
   const [localMessages, setLocalMessages] = useState<Message[]>([])
   const [streamingMessage, setStreamingMessage] = useState<Message | null>(null)
+  const [pendingToolCalls, setPendingToolCalls] = useState<ToolCallWithStatus[] | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+  const activeChatIdRef = useRef(activeChatId)
+  activeChatIdRef.current = activeChatId
 
   useEffect(() => {
     setLocalMessages([])
     setStreamingMessage(null)
+    setPendingToolCalls(null)
     setError(null)
     setIsLoading(false)
     abortRef.current?.abort()
@@ -67,21 +89,37 @@ export function useProjectChat({
     } else {
       base = localMessages
     }
+
+    if (pendingToolCalls) {
+      const copy = [...base]
+      for (let i = copy.length - 1; i >= 0; i--) {
+        if (copy[i].role === "assistant") {
+          copy[i] = { ...copy[i], toolCalls: pendingToolCalls }
+          break
+        }
+      }
+      base = copy
+    }
+
     if (streamingMessage) return [...base, streamingMessage]
     return base
-  }, [activeChatId, chatData, localMessages, streamingMessage])
+  }, [activeChatId, chatData, localMessages, pendingToolCalls, streamingMessage])
 
-  // ---- Streaming helper --------------------------------------------------
   async function streamResponse(
     apiMessages: Array<{ role: string; content: string }>,
     signal: AbortSignal,
     onDelta: (delta: { content?: string; reasoning?: string }) => void,
+    onToolCallDelta: () => void,
     useClaudeFirstPrompt: boolean,
-  ): Promise<{ fullContent: string; fullReasoning: string }> {
+    context?: AiContext | null,
+  ): Promise<{ fullContent: string; fullReasoning: string; toolCalls: StreamingToolCall[] }> {
+    const body: Record<string, unknown> = { messages: apiMessages, useClaudeFirstPrompt }
+    if (context) body.context = context
+
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages: apiMessages, useClaudeFirstPrompt }),
+      body: JSON.stringify(body),
       signal,
     })
 
@@ -99,6 +137,7 @@ export function useProjectChat({
     let buffer = ""
     let fullContent = ""
     let fullReasoning = ""
+    const toolCalls: StreamingToolCall[] = []
 
     while (true) {
       const { done, value } = await reader.read()
@@ -126,14 +165,183 @@ export function useProjectChat({
             fullContent += delta.content
             onDelta({ content: delta.content })
           }
+
+          if (delta?.tool_calls) {
+            for (const tc of delta.tool_calls) {
+              const idx = tc.index ?? 0
+              if (!toolCalls[idx]) {
+                toolCalls[idx] = { id: tc.id || "", name: "", arguments: "" }
+              }
+              if (tc.id) toolCalls[idx].id = tc.id
+              if (tc.function?.name) toolCalls[idx].name = tc.function.name
+              if (tc.function?.arguments) toolCalls[idx].arguments += tc.function.arguments
+            }
+            onToolCallDelta()
+          }
         } catch {
           // skip malformed chunks
         }
       }
     }
 
-    return { fullContent, fullReasoning }
+    return { fullContent, fullReasoning, toolCalls }
   }
+
+  const confirmToolCall = useCallback(
+    async (_messageId: string, toolCallId: string) => {
+      if (!sessionToken || !pendingToolCalls) return
+
+      const tc = pendingToolCalls.find((t) => t.toolCall.id === toolCallId)
+      if (!tc || tc.status !== "pending") return
+
+      const args = tc.toolCall.arguments
+      let resultMessage = ""
+      let linkedEntity: LinkedEntity | undefined
+
+      try {
+        switch (tc.toolCall.name) {
+          case "createTask": {
+            const result = await createTaskMutation({
+              token: sessionToken,
+              projectId: args.projectId as Id<"projects">,
+              phaseOrder: args.phaseOrder as number,
+              title: args.title as string,
+              dueDate: args.dueDate as string,
+              time: (args.time as string) || undefined,
+            })
+            resultMessage = `Task "${result.title}" created successfully.`
+            linkedEntity = {
+              type: "task",
+              id: `${args.projectId}:${result.phaseOrder}:${result.taskOrder}`,
+              name: result.title,
+              projectId: args.projectId as string,
+            }
+            break
+          }
+          case "updateTaskStatus": {
+            const result = await updateTaskStatusMutation({
+              token: sessionToken,
+              projectId: args.projectId as Id<"projects">,
+              phaseOrder: args.phaseOrder as number,
+              taskOrder: args.taskOrder as number,
+              completed: args.completed as boolean,
+            })
+            resultMessage = `Task "${result.title}" marked as ${result.completed ? "complete" : "incomplete"}.`
+            linkedEntity = {
+              type: "task",
+              id: `${args.projectId}:${args.phaseOrder}:${args.taskOrder}`,
+              name: result.title,
+              projectId: args.projectId as string,
+            }
+            break
+          }
+          case "updateTaskDueDate": {
+            const result = await updateTaskDueDateMutation({
+              token: sessionToken,
+              projectId: args.projectId as Id<"projects">,
+              phaseOrder: args.phaseOrder as number,
+              taskOrder: args.taskOrder as number,
+              newDate: args.newDate as string,
+            })
+            resultMessage = `Task "${result.title}" rescheduled to ${result.newDate}.`
+            linkedEntity = {
+              type: "task",
+              id: `${args.projectId}:${args.phaseOrder}:${args.taskOrder}`,
+              name: result.title,
+              projectId: args.projectId as string,
+            }
+            break
+          }
+          case "createCalendarEvent": {
+            const result = await createCalendarEventMutation({
+              token: sessionToken,
+              title: args.title as string,
+              startDate: args.startDate as string,
+              endDate: args.endDate as string,
+              projectId: args.projectId
+                ? (args.projectId as Id<"projects">)
+                : undefined,
+            })
+            resultMessage = `Calendar event "${result.title}" created.`
+            linkedEntity = {
+              type: "event",
+              id: result.eventId,
+              name: result.title,
+              projectId: args.projectId as string | undefined,
+            }
+            break
+          }
+          case "moveCalendarEvent": {
+            const result = await moveCalendarEventMutation({
+              token: sessionToken,
+              eventId: args.eventId as Id<"calendarEvents">,
+              newStartDate: args.newStartDate as string,
+              newEndDate: args.newEndDate as string,
+            })
+            resultMessage = `Calendar event "${result.title}" moved to ${result.newStartDate} – ${result.newEndDate}.`
+            linkedEntity = {
+              type: "event",
+              id: args.eventId as string,
+              name: result.title,
+            }
+            break
+          }
+          default:
+            resultMessage = "Unknown action."
+        }
+
+        setPendingToolCalls((prev) =>
+          prev?.map((t) =>
+            t.toolCall.id === toolCallId
+              ? { ...t, status: "confirmed" as const, resultMessage, linkedEntity }
+              : t,
+          ) ?? null,
+        )
+
+        const chatId = activeChatIdRef.current
+        if (chatId && sessionToken) {
+          await sendMessageMutation({
+            token: sessionToken,
+            chatId,
+            role: "assistant",
+            content: `✅ ${resultMessage}`,
+          })
+        }
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : "Action failed"
+        setPendingToolCalls((prev) =>
+          prev?.map((t) =>
+            t.toolCall.id === toolCallId
+              ? { ...t, status: "rejected" as const, resultMessage: errMsg }
+              : t,
+          ) ?? null,
+        )
+      }
+    },
+    [
+      sessionToken,
+      pendingToolCalls,
+      createTaskMutation,
+      updateTaskStatusMutation,
+      updateTaskDueDateMutation,
+      createCalendarEventMutation,
+      moveCalendarEventMutation,
+      sendMessageMutation,
+    ],
+  )
+
+  const rejectToolCall = useCallback(
+    (_messageId: string, toolCallId: string) => {
+      setPendingToolCalls((prev) =>
+        prev?.map((t) =>
+          t.toolCall.id === toolCallId
+            ? { ...t, status: "rejected" as const, resultMessage: "Action cancelled by user." }
+            : t,
+        ) ?? null,
+      )
+    },
+    [],
+  )
 
   const sendMessage = useCallback(
     async (content: string) => {
@@ -166,6 +374,7 @@ export function useProjectChat({
         ])
       }
 
+      setPendingToolCalls(null)
       setIsLoading(true)
       setError(null)
       const streamId = crypto.randomUUID()
@@ -174,21 +383,15 @@ export function useProjectChat({
       abortRef.current = abortController
 
       try {
-        // If the chat was created from a project, the very first assistant
-        // message is the raw project overview JSON. We want that to show up
-        // in the UI, but we *never* want to send it back to the model,
-        // otherwise the AI keeps echoing the overview.
         const initialAssistantContent =
           chatData?.messages?.[0]?.role === "assistant"
             ? chatData.messages[0].content.trim()
             : ""
 
-        // Build history from existing messages, but strip out any assistant
-        // message whose content exactly matches that initial project overview.
         const history: Array<{ role: string; content: string }> =
           effectiveChatId && chatData
             ? chatData.messages
-                .filter((m, index) => {
+                .filter((m) => {
                   if (!initialAssistantContent) return true
                   return !(
                     m.role === "assistant" &&
@@ -199,9 +402,21 @@ export function useProjectChat({
             : effectiveChatId
               ? []
               : localMessages.map((m) => ({ role: m.role, content: m.content }))
-        const apiMessages = [...history, { role: "user" as const, content }]
 
-        const { fullContent, fullReasoning } = await streamResponse(
+        const last20 = history.slice(-20)
+        const apiMessages = [...last20, { role: "user" as const, content }]
+
+        const enrichedContext: AiContext | null = aiContext
+          ? {
+              ...aiContext,
+              currentProjectId: currentProjectId || undefined,
+              currentProjectName: currentProjectId
+                ? aiContext.projects.find((p) => p.id === currentProjectId)?.name
+                : undefined,
+            }
+          : null
+
+        const { fullContent, fullReasoning, toolCalls } = await streamResponse(
           apiMessages,
           abortController.signal,
           (delta) => {
@@ -216,15 +431,50 @@ export function useProjectChat({
               }
             })
           },
+          () => {
+            setStreamingMessage((prev) => {
+              if (!prev) return prev
+              if (!prev.content) {
+                return { ...prev, content: "Processing your request..." }
+              }
+              return prev
+            })
+          },
           useClaudeFirstPrompt,
+          enrichedContext,
         )
+
+        const parsedToolCalls: ToolCallWithStatus[] = toolCalls
+          .filter((tc) => tc.name)
+          .map((tc) => {
+            let parsedArgs: Record<string, unknown> = {}
+            try {
+              parsedArgs = JSON.parse(tc.arguments)
+            } catch {
+              parsedArgs = {}
+            }
+            return {
+              toolCall: { id: tc.id || crypto.randomUUID(), name: tc.name, arguments: parsedArgs },
+              status: "pending" as const,
+            }
+          })
+
+        const hasToolCalls = parsedToolCalls.length > 0
+        let finalContent = fullContent
+
+        if (hasToolCalls && !finalContent.trim()) {
+          finalContent = parsedToolCalls
+            .map((tc) => buildToolConfirmationText(tc.toolCall.name, tc.toolCall.arguments))
+            .join("\n\n")
+          finalContent += "\n\nShall I proceed?"
+        }
 
         if (effectiveChatId) {
           await sendMessageMutation({
             token: sessionToken,
             chatId: effectiveChatId,
             role: "assistant",
-            content: fullContent,
+            content: finalContent,
             reasoning: fullReasoning || undefined,
           })
           if (projectToLink && !activeChatId) {
@@ -256,9 +506,19 @@ export function useProjectChat({
         } else {
           setLocalMessages((prev) => [
             ...prev,
-            { id: streamId, role: "assistant", content: fullContent, reasoning: fullReasoning },
+            {
+              id: streamId,
+              role: "assistant",
+              content: finalContent,
+              reasoning: fullReasoning,
+            },
           ])
         }
+
+        if (hasToolCalls) {
+          setPendingToolCalls(parsedToolCalls)
+        }
+
         setStreamingMessage(null)
       } catch (err) {
         if ((err as Error).name === "AbortError") {
@@ -283,6 +543,8 @@ export function useProjectChat({
       renameChatMutation,
       onProjectLinked,
       useClaudeFirstPrompt,
+      aiContext,
+      currentProjectId,
     ],
   )
 
@@ -297,5 +559,7 @@ export function useProjectChat({
     error,
     sendMessage,
     stopGeneration,
+    confirmToolCall,
+    rejectToolCall,
   }
 }

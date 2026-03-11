@@ -90,5 +90,17 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_userId", ["userId"])
-    .index("by_userId_and_date", ["userId", "date"]),
+    .index("by_userId_and_date", ["userId", "date"])
+    .index("by_projectId", ["projectId"]),
+
+  calendarEvents: defineTable({
+    userId: v.id("users"),
+    projectId: v.optional(v.id("projects")),
+    title: v.string(),
+    startDate: v.string(),
+    endDate: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_userId", ["userId"])
+    .index("by_projectId", ["projectId"]),
 });

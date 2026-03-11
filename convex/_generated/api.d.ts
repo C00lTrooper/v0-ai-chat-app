@@ -8,6 +8,8 @@
  * @module
  */
 
+import type * as aiContext from "../aiContext.js";
+import type * as aiTools from "../aiTools.js";
 import type * as auth from "../auth.js";
 import type * as budget from "../budget.js";
 import type * as chats from "../chats.js";
@@ -21,6 +23,8 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  aiContext: typeof aiContext;
+  aiTools: typeof aiTools;
   auth: typeof auth;
   budget: typeof budget;
   chats: typeof chats;

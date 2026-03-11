@@ -63,6 +63,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } else {
           window.localStorage.removeItem(STORAGE_SESSION_KEY);
         }
+      } catch {
+        window.localStorage.removeItem(STORAGE_SESSION_KEY);
       } finally {
         setIsReady(true);
       }

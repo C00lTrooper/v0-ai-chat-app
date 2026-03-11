@@ -18,6 +18,7 @@ import {
   PanelLeft,
   Sparkles,
   GanttChart,
+  Wallet,
 } from "lucide-react";
 import {
   Tooltip,
@@ -32,6 +33,7 @@ import { OverviewSection } from "@/components/project-page/OverviewSection";
 import { TasksSection } from "@/components/project-page/TasksSection";
 import { ChatSection } from "@/components/project-page/ChatSection";
 import { SettingsSection } from "@/components/project-page/SettingsSection";
+import { BudgetSection } from "@/components/project-page/BudgetSection";
 import type { Project } from "@/lib/project-schema";
 import type { ProjectData, Section } from "@/components/project-page/types";
 
@@ -45,6 +47,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "tasks", label: "Tasks", icon: CheckSquare },
   { id: "timeline", label: "Timeline", icon: GanttChart },
+  { id: "budget", label: "Budget", icon: Wallet },
   { id: "chat", label: "Chat", icon: MessageSquare },
   { id: "settings", label: "Settings", icon: Settings },
 ];
@@ -114,6 +117,8 @@ function SectionContent({
       return <ChatSection project={project} />;
     case "timeline":
       return <TimelineSection project={project} />;
+    case "budget":
+      return <BudgetSection project={project} />;
     case "settings":
       return <SettingsSection />;
   }

@@ -60,6 +60,33 @@ export const createCategory = mutation({
 // Transaction queries & mutations
 // ---------------------------------------------------------------------------
 
+export const listTransactionsByProject = query({
+  args: { token: v.string(), projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    const user = await authenticateUser(ctx, args.token);
+
+    const transactions = await ctx.db
+      .query("transactions")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .order("desc")
+      .collect();
+
+    const owned = transactions.filter((t) => t.userId === user._id);
+
+    const categoryIds = [...new Set(owned.map((t) => t.categoryId))];
+    const categories: Record<string, Doc<"budgetCategories">> = {};
+    for (const id of categoryIds) {
+      const cat = await ctx.db.get(id);
+      if (cat) categories[id] = cat;
+    }
+
+    return owned.map((t) => ({
+      ...t,
+      category: categories[t.categoryId] ?? null,
+    }));
+  },
+});
+
 export const listTransactions = query({
   args: { token: v.string() },
   handler: async (ctx, args) => {

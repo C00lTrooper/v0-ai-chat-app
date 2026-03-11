@@ -36,9 +36,18 @@ interface RawProject {
   isOwner: boolean;
 }
 
+interface RawCalendarEvent {
+  _id: string;
+  title: string;
+  startDate: string;
+  endDate: string;
+  projectId?: string;
+}
+
 export function useCalendarData() {
   const { sessionToken } = useAuth();
   const [rawProjects, setRawProjects] = useState<RawProject[]>([]);
+  const [rawCalendarEvents, setRawCalendarEvents] = useState<RawCalendarEvent[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -52,10 +61,22 @@ export function useCalendarData() {
 
     void (async () => {
       try {
-        const result = await convexClient.query(api.projects.listWithTasks, {
-          token: sessionToken,
-        });
-        if (!cancelled) setRawProjects(result);
+        const [projectsResult, contextResult] = await Promise.all([
+          convexClient.query(api.projects.listWithTasks, { token: sessionToken }),
+          convexClient.query(api.aiContext.getContext, { token: sessionToken }),
+        ]);
+        if (!cancelled) {
+          setRawProjects(projectsResult);
+          setRawCalendarEvents(
+            contextResult.calendarEvents.map((e) => ({
+              _id: e.id,
+              title: e.title,
+              startDate: e.startDate,
+              endDate: e.endDate,
+              projectId: e.projectId,
+            })),
+          );
+        }
       } catch {
         // silently fail
       } finally {
@@ -109,8 +130,31 @@ export function useCalendarData() {
       }
     });
 
+    for (const ce of rawCalendarEvents) {
+      const startDate = new Date(ce.startDate + "T00:00:00");
+      if (isNaN(startDate.getTime())) continue;
+
+      const linkedProject = ce.projectId
+        ? projects.find((p) => p._id === ce.projectId)
+        : null;
+
+      events.push({
+        id: `cal-${ce._id}`,
+        projectId: ce.projectId || "",
+        projectName: linkedProject?.projectName || "Calendar",
+        phaseName: "Event",
+        taskName: ce.title,
+        date: startDate,
+        timeStr: "9:00 AM",
+        colorIndex: linkedProject?.colorIndex ?? 7,
+        completed: false,
+        phaseOrder: -1,
+        taskOrder: -1,
+      });
+    }
+
     return { projects, events };
-  }, [rawProjects]);
+  }, [rawProjects, rawCalendarEvents]);
 
   return { projects, events, loading };
 }

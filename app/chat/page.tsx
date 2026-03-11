@@ -15,6 +15,7 @@ import { ChatControls } from "@/components/chat-controls";
 import { AlertCircle } from "lucide-react";
 import { useAuth } from "@/components/auth-provider";
 import type { Project } from "@/lib/project-schema";
+import type { AiContext } from "@/lib/ai-tools";
 import type { Id } from "@/convex/_generated/dataModel";
 
 export default function ChatPage() {
@@ -48,6 +49,28 @@ export default function ChatPage() {
       ? { token: sessionToken, projectId: chatData.projectId as Id<"projects"> }
       : "skip",
   );
+
+  const aiContextData = useQuery(
+    api.aiContext.getContext,
+    sessionToken ? { token: sessionToken } : "skip",
+  );
+
+  const aiContext: AiContext | null = useMemo(() => {
+    if (!aiContextData) return null;
+    return {
+      userName: aiContextData.userName,
+      todayDate: new Date().toISOString().split("T")[0],
+      projects: aiContextData.projects,
+      calendarEvents: aiContextData.calendarEvents,
+    };
+  }, [aiContextData]);
+
+  const currentProjectId = chatData?.projectId
+    ? (chatData.projectId as string)
+    : projectToLinkId
+      ? (projectToLinkId as string)
+      : null;
+
   const linkedProjectName =
     projectToLinkId && projects
       ? (projects.find((p) => p._id === projectToLinkId)?.projectName ?? null)
@@ -91,13 +114,22 @@ export default function ChatPage() {
     [router],
   );
 
-  const { messages, isLoading, error, sendMessage, stopGeneration } =
-    useProjectChat({
-      activeChatId,
-      projectToLink: projectToLinkId,
-      onProjectLinked: handleProjectLinked,
-      useClaudeFirstPrompt,
-    });
+  const {
+    messages,
+    isLoading,
+    error,
+    sendMessage,
+    stopGeneration,
+    confirmToolCall,
+    rejectToolCall,
+  } = useProjectChat({
+    activeChatId,
+    projectToLink: projectToLinkId,
+    onProjectLinked: handleProjectLinked,
+    useClaudeFirstPrompt,
+    aiContext,
+    currentProjectId,
+  });
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
@@ -200,9 +232,6 @@ export default function ChatPage() {
           ) : (
             <div className="mx-auto max-w-3xl divide-y divide-border pb-40">
               {messages.map((message, index) => {
-                // Only show the rich project overview card on the very first
-                // assistant message in the chat. All later assistant messages
-                // should behave like a normal chat response.
                 const isFirstAssistant =
                   message.role === "assistant" &&
                   messages.findIndex((m) => m.role === "assistant") === index;
@@ -212,6 +241,8 @@ export default function ChatPage() {
                     key={message.id}
                     message={message}
                     liveProject={isFirstAssistant ? liveProject : null}
+                    onConfirmToolCall={confirmToolCall}
+                    onRejectToolCall={rejectToolCall}
                   />
                 );
               })}
