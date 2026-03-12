@@ -56,6 +56,7 @@ export function TaskDetailDialog({
   const [taskStartTime, setTaskStartTime] = useState(event?.timeStr ?? "");
   const [taskEndTime, setTaskEndTime] = useState(event?.endTimeStr ?? "");
   const [isUpdatingTime, setIsUpdatingTime] = useState(false);
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
 
   const ensureTask = useMutation(api.tasks.ensureTaskForProjectWbsTask);
   const createSubtasks = useMutation(api.tasks.createSubtasks);
@@ -64,6 +65,7 @@ export function TaskDetailDialog({
   );
   const deleteSubtaskMut = useMutation(api.tasks.deleteSubtask);
   const updateTaskTime = useMutation(api.aiTools.updateTaskTime);
+  const updateTaskStatus = useMutation(api.aiTools.updateTaskStatus);
 
   const subtasks = useQuery(
     api.tasks.listSubtasks,
@@ -119,6 +121,29 @@ export function TaskDetailDialog({
   );
 
   if (!event) return null;
+
+  const handleMarkTaskDone = async () => {
+    if (!sessionToken || isUpdatingStatus) return;
+    setIsUpdatingStatus(true);
+    try {
+      await updateTaskStatus({
+        token: sessionToken,
+        projectId: event.projectId as Id<"projects">,
+        phaseOrder: event.phaseOrder,
+        taskOrder: event.taskOrder,
+        completed: true,
+      });
+      toast({ title: "Task marked as done." });
+      onOpenChange(false);
+    } catch {
+      toast({
+        variant: "destructive",
+        title: "Failed to update task status.",
+      });
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  };
 
   const handleToggleSubtask = async (
     subtaskId: Id<"subtasks">,
@@ -324,15 +349,34 @@ export function TaskDetailDialog({
                   {event.projectName}
                 </DialogDescription>
               </div>
-              {event.completed && (
-                <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
-                  <CheckCircle2 className="size-3" />
-                  Completed
-                </span>
-              )}
+              <div className="ml-auto flex items-center gap-2">
+                {!event.completed && (
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="outline"
+                    className="h-7 px-2 text-[11px]"
+                    onClick={handleMarkTaskDone}
+                    disabled={!sessionToken || isUpdatingStatus}
+                  >
+                    Mark as done
+                  </Button>
+                )}
+                {event.completed && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+                    <CheckCircle2 className="size-3" />
+                    Completed
+                  </span>
+                )}
+              </div>
             </div>
           </DialogHeader>
           <div className="space-y-3 pt-1">
+            {event.taskDescription && (
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                {event.taskDescription}
+              </p>
+            )}
             <div className="flex items-center gap-3 text-sm">
               <Calendar className="size-4 text-muted-foreground" />
               <span>

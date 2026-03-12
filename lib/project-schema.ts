@@ -21,11 +21,12 @@ export const ProjectSchema = z.object({
           z.object({
             order: z.number().int().nonnegative(),
             name: z.string().min(1),
+            description: z.string().optional().default(""),
             date: z.string().min(1),
             time: z.string().min(1),
             endTime: z.string().optional(),
             completed: z.boolean().optional().default(false),
-          })
+          }),
         ),
       })
     )

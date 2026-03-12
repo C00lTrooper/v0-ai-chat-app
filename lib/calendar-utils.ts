@@ -12,6 +12,7 @@ export interface CalendarEvent {
   projectName: string;
   phaseName: string;
   taskName: string;
+  taskDescription?: string;
   date: Date;
   timeStr: string;
   /** End time (e.g. "10:00 AM"). If absent, event is shown as 1-hour block from timeStr. */

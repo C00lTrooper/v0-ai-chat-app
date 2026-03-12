@@ -69,6 +69,7 @@ export interface AiTaskSummary {
   phaseName: string;
   taskOrder: number;
   title: string;
+  description?: string;
   dueDate: string;
   startTime: string;
   endTime?: string;

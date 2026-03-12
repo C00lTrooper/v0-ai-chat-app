@@ -61,6 +61,7 @@ export const getContext = query({
         phaseName: string;
         taskOrder: number;
         title: string;
+        description?: string;
         dueDate: string;
         startTime: string;
         endTime?: string;
@@ -78,6 +79,7 @@ export const getContext = query({
               phaseName: phase.name,
               taskOrder: task.order,
               title: task.name,
+              description: typeof task.description === "string" ? task.description : undefined,
               dueDate: task.date,
               startTime: task.time || "9:00 AM",
               endTime: task.endTime || undefined,

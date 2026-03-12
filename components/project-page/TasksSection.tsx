@@ -197,7 +197,7 @@ export function TasksSection({ project, onTaskCompleted }: TasksSectionProps) {
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   const date = new Date(task.date + "T00:00:00");
-                                  const taskWithEnd = task as { endTime?: string };
+                                  const taskWithEnd = task as { endTime?: string; description?: string };
                                   const eventForDialog: CalendarEvent = {
                                     id: `${project._id}-${phase.order}-${task.order}`,
                                     projectId: project._id,
@@ -205,6 +205,7 @@ export function TasksSection({ project, onTaskCompleted }: TasksSectionProps) {
                                       project.projectName || project.summaryName,
                                     phaseName: phase.name,
                                     taskName: task.name,
+                                    taskDescription: taskWithEnd.description,
                                     date,
                                     timeStr: task.time,
                                     ...(taskWithEnd.endTime

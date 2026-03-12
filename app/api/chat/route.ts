@@ -175,7 +175,8 @@ function buildSystemPrompt(context: AiContext): string {
     const timeRange = t.endTime
       ? `${t.startTime} – ${t.endTime}`
       : t.startTime;
-    return `  - [${t.completed ? "x" : " "}] {{task:${t.projectId}:${t.phaseOrder}:${t.taskOrder}:${t.title}}} — Project: ${t.projectName}, Phase ${t.phaseOrder} (${t.phaseName}), Due: ${t.dueDate}, Time: ${timeRange}`;
+    const desc = t.description ? ` Description: ${t.description}` : "";
+    return `  - [${t.completed ? "x" : " "}] {{task:${t.projectId}:${t.phaseOrder}:${t.taskOrder}:${t.title}}} — Project: ${t.projectName}, Phase ${t.phaseOrder} (${t.phaseName}), Due: ${t.dueDate}, Time: ${timeRange}.${desc}`;
   });
 
   const eventLines = context.calendarEvents.map(
