@@ -5,6 +5,7 @@ export default defineSchema({
   users: defineTable({
     email: v.string(),
     passwordHash: v.string(),
+    dailyTaskLimit: v.optional(v.number()),
     createdAt: v.number(),
   }).index("by_email", ["email"]),
 
@@ -63,6 +64,7 @@ export default defineSchema({
     title: v.string(),
     description: v.optional(v.string()),
     createdAt: v.number(),
+    parentTaskId: v.optional(v.id("tasks")),
   }).index("by_project_phase_task", ["projectId", "phaseOrder", "taskOrder"]),
 
   subtasks: defineTable({

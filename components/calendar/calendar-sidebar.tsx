@@ -60,7 +60,7 @@ export function CalendarSidebar({
   };
 
   return (
-    <aside className="flex w-60 shrink-0 flex-col border-r border-border bg-background">
+    <aside className="flex w-full shrink-0 flex-col border-b border-border bg-background md:w-60 md:border-b-0 md:border-r">
       <div className="p-3 pb-1">
         {/* Mini calendar header */}
         <div className="mb-2 flex items-center justify-between">

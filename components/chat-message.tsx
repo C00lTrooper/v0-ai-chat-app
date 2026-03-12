@@ -19,6 +19,8 @@ import {
   Calendar,
   ListTodo,
   FolderKanban,
+  AlertTriangle,
+  Clock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Message } from "@/hooks/use-chat";
@@ -139,6 +141,39 @@ function stripReferences(content: string): string {
   );
 }
 
+function ConflictWarningBanner({ warning }: { warning: NonNullable<ToolCallWithStatus["conflictWarning"]> }) {
+  return (
+    <div className="rounded-md border border-orange-200 bg-orange-50/60 dark:border-orange-800 dark:bg-orange-950/30 p-2.5 mb-2 space-y-2">
+      <div className="flex items-center gap-1.5 text-xs font-semibold text-orange-700 dark:text-orange-300">
+        <AlertTriangle className="size-3.5" />
+        Scheduling Conflict{warning.conflicts.length > 1 ? "s" : ""}
+      </div>
+      <ul className="space-y-1 text-xs text-orange-700/90 dark:text-orange-300/90 pl-5 list-disc">
+        {warning.conflicts.map((c, i) => (
+          <li key={i}>{c.description}</li>
+        ))}
+      </ul>
+      {warning.suggestedSlots.length > 0 && (
+        <div className="pt-1 border-t border-orange-200 dark:border-orange-800">
+          <p className="text-xs font-medium text-orange-700 dark:text-orange-300 flex items-center gap-1 mb-1">
+            <Clock className="size-3" /> Suggested free slots:
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {warning.suggestedSlots.map((slot, i) => (
+              <span
+                key={i}
+                className="inline-flex items-center rounded-full border border-orange-200 dark:border-orange-700 bg-white dark:bg-orange-950/50 px-2 py-0.5 text-xs text-orange-700 dark:text-orange-300"
+              >
+                {slot.startTime} – {slot.endTime}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ToolCallCard({
   tc,
   onConfirm,
@@ -160,30 +195,39 @@ function ToolCallCard({
     <div
       className={cn(
         "rounded-lg border p-3 mt-2",
-        tc.status === "pending" && "border-amber-200 bg-amber-50/50 dark:border-amber-800 dark:bg-amber-950/30",
+        tc.status === "pending" && tc.conflictWarning && "border-orange-300 bg-orange-50/40 dark:border-orange-700 dark:bg-orange-950/20",
+        tc.status === "pending" && !tc.conflictWarning && "border-amber-200 bg-amber-50/50 dark:border-amber-800 dark:bg-amber-950/30",
         tc.status === "confirmed" && "border-emerald-200 bg-emerald-50/50 dark:border-emerald-800 dark:bg-emerald-950/30",
         tc.status === "rejected" && "border-red-200 bg-red-50/50 dark:border-red-800 dark:bg-red-950/30",
       )}
     >
       {tc.status === "pending" && (
         <>
+          {tc.conflictWarning && <ConflictWarningBanner warning={tc.conflictWarning} />}
           <div className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-300">
             <ListTodo className="size-4 shrink-0" />
-            <span className="font-medium">Action Required</span>
+            <span className="font-medium">
+              {tc.conflictWarning ? "Proceed despite conflict?" : "Action Required"}
+            </span>
           </div>
           <div className="mt-2 flex gap-2">
             <Button
               size="sm"
               onClick={handleConfirm}
               disabled={loading}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              className={cn(
+                "text-white",
+                tc.conflictWarning
+                  ? "bg-orange-600 hover:bg-orange-700"
+                  : "bg-emerald-600 hover:bg-emerald-700",
+              )}
             >
               {loading ? (
                 <Loader2 className="size-3 animate-spin" />
               ) : (
                 <Check className="size-3" />
               )}
-              Confirm
+              {tc.conflictWarning ? "Confirm Anyway" : "Confirm"}
             </Button>
             <Button
               size="sm"

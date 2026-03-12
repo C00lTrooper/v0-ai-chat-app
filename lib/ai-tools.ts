@@ -6,12 +6,33 @@ export interface ToolCall {
 
 export type ToolCallStatus = "pending" | "confirmed" | "rejected";
 
+export interface ConflictInfo {
+  type: "time_overlap" | "event_overlap" | "daily_limit";
+  description: string;
+}
+
+export interface SuggestedSlot {
+  date: string;
+  startTime: string;
+  endTime: string;
+}
+
+export interface ConflictWarning {
+  conflicts: ConflictInfo[];
+  suggestedSlots: SuggestedSlot[];
+  dailyTaskCount: number;
+  dailyTaskLimit: number | null;
+}
+
 export interface ToolCallWithStatus {
   toolCall: ToolCall;
   status: ToolCallStatus;
   resultMessage?: string;
   linkedEntity?: LinkedEntity;
+  conflictWarning?: ConflictWarning;
 }
+
+export const READ_ONLY_TOOLS = ["checkTimeConflicts"] as const;
 
 export interface LinkedEntity {
   type: "task" | "project" | "event";
@@ -24,6 +45,7 @@ export interface LinkedEntity {
 export interface AiContext {
   userName: string;
   todayDate: string;
+  dailyTaskLimit?: number | null;
   currentProjectId?: string;
   currentProjectName?: string;
   projects: AiProjectSummary[];
@@ -84,6 +106,8 @@ export function buildToolConfirmationText(name: string, args: Record<string, unk
       return `Create calendar event **"${args.title}"** from **${args.startDate}** to **${args.endDate}**${args.projectName ? ` (linked to ${args.projectName})` : ""}`;
     case "moveCalendarEvent":
       return `Move calendar event **"${args.eventTitle}"** to **${args.newStartDate}** – **${args.newEndDate}**`;
+    case "checkTimeConflicts":
+      return `Checking for scheduling conflicts on **${args.date}** at **${args.startTime}**${args.endTime ? ` – **${args.endTime}**` : ""}...`;
     default:
       return `Execute action: ${name}`;
   }

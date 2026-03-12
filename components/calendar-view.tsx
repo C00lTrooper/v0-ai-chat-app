@@ -96,7 +96,7 @@ export function CalendarView() {
   }
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full flex-col md:flex-row">
       <CalendarSidebar
         currentDate={currentDate}
         selectedDate={selectedDate}

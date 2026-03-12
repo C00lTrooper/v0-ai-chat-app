@@ -21,9 +21,9 @@ export default function CalendarPage() {
   }
 
   return (
-    <div className="flex h-dvh flex-col bg-background">
+    <div className="flex min-h-dvh flex-col bg-background">
       <ChatHeader hasMessages={false} onClear={() => {}} />
-      <div className="flex-1 overflow-hidden pt-14">
+      <div className="flex-1 pt-14">
         <CalendarView />
       </div>
     </div>

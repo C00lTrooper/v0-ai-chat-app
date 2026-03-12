@@ -72,6 +72,7 @@ export const createTask = mutation({
     dueDate: v.string(),
     time: v.optional(v.string()),
     endTime: v.optional(v.string()),
+    parentTaskId: v.optional(v.id("tasks")),
   },
   handler: async (ctx, args) => {
     const user = await authenticateUser(ctx, args.token);
@@ -103,6 +104,7 @@ export const createTask = mutation({
       taskOrder: newTask.order,
       title: args.title,
       createdAt: Date.now(),
+      parentTaskId: args.parentTaskId,
     });
 
     return {

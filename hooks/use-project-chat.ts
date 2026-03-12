@@ -1,12 +1,41 @@
 "use client"
 
+"use client"
+
 import { useState, useCallback, useRef, useMemo, useEffect } from "react"
 import { useQuery, useMutation } from "convex/react"
 import { api } from "@/convex/_generated/api"
 import { useAuth } from "@/components/auth-provider"
+import { convexClient } from "@/lib/convex"
 import type { Id } from "@/convex/_generated/dataModel"
-import type { AiContext, ToolCallWithStatus, LinkedEntity } from "@/lib/ai-tools"
-import { buildToolConfirmationText } from "@/lib/ai-tools"
+import type { AiContext, ToolCallWithStatus, LinkedEntity, ConflictWarning } from "@/lib/ai-tools"
+import { buildToolConfirmationText, READ_ONLY_TOOLS } from "@/lib/ai-tools"
+
+// Task breakdown configuration
+const BREAKDOWN_THRESHOLD_MINUTES = 2 * 60 // default: 2 hours
+const MIN_CHUNK_MINUTES = 30
+const MAX_CHUNK_MINUTES = 60
+
+function parseTimeToMinutesClient(time: string | undefined): number | null {
+  if (!time) return null
+  const t = time.trim().toUpperCase()
+  const match = t.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/)
+  if (!match) return null
+  let hours = parseInt(match[1], 10)
+  const minutes = parseInt(match[2], 10)
+  const ampm = match[3]
+  if (ampm === "PM" && hours < 12) hours += 12
+  if (ampm === "AM" && hours === 12) hours = 0
+  return hours * 60 + minutes
+}
+
+function minutesToTimeClient(mins: number): string {
+  const h = Math.floor(mins / 60)
+  const m = mins % 60
+  const ampm = h >= 12 ? "PM" : "AM"
+  const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h
+  return `${h12}:${String(m).padStart(2, "0")} ${ampm}`
+}
 
 export interface Message {
   id: string
@@ -107,7 +136,7 @@ export function useProjectChat({
   }, [activeChatId, chatData, localMessages, pendingToolCalls, streamingMessage])
 
   async function streamResponse(
-    apiMessages: Array<{ role: string; content: string }>,
+    apiMessages: Array<{ role: string; content?: string | null; tool_calls?: unknown[]; tool_call_id?: string }>,
     signal: AbortSignal,
     onDelta: (delta: { content?: string; reasoning?: string }) => void,
     onToolCallDelta: () => void,
@@ -188,6 +217,66 @@ export function useProjectChat({
     return { fullContent, fullReasoning, toolCalls }
   }
 
+  function isReadOnlyTool(name: string): boolean {
+    return (READ_ONLY_TOOLS as readonly string[]).includes(name)
+  }
+
+  async function executeReadOnlyTool(
+    name: string,
+    args: Record<string, unknown>,
+    token: string,
+  ): Promise<unknown> {
+    if (name === "checkTimeConflicts" && convexClient) {
+      return await convexClient.query(api.conflicts.checkTimeConflicts, {
+        token,
+        date: args.date as string,
+        startTime: args.startTime as string,
+        endTime: (args.endTime as string) || undefined,
+        excludeTaskKey: (args.excludeTaskKey as string) || undefined,
+        excludeEventId: (args.excludeEventId as string) || undefined,
+      })
+    }
+    return { error: "Unknown read-only tool" }
+  }
+
+  async function runConflictCheck(
+    args: Record<string, unknown>,
+    token: string,
+  ): Promise<ConflictWarning | undefined> {
+    if (!convexClient) return undefined
+    const date = (args.dueDate ?? args.newDate ?? args.startDate ?? args.newStartDate) as string | undefined
+    const startTime = (args.time ?? args.newStartTime ?? args.startTime) as string | undefined
+    if (!date || !startTime) return undefined
+
+    const endTime = (args.endTime ?? args.newEndTime ?? args.endDate) as string | undefined
+    const excludeTaskKey = args.taskOrder !== undefined
+      ? `${args.projectId}:${args.phaseOrder}:${args.taskOrder}`
+      : undefined
+    const excludeEventId = args.eventId as string | undefined
+
+    try {
+      const result = await convexClient.query(api.conflicts.checkTimeConflicts, {
+        token,
+        date,
+        startTime,
+        endTime: endTime || undefined,
+        excludeTaskKey: excludeTaskKey || undefined,
+        excludeEventId: excludeEventId || undefined,
+      })
+      if (result.hasConflicts) {
+        return {
+          conflicts: result.conflicts,
+          suggestedSlots: result.suggestedSlots,
+          dailyTaskCount: result.dailyTaskCount,
+          dailyTaskLimit: result.dailyTaskLimit,
+        }
+      }
+    } catch {
+      // non-fatal
+    }
+    return undefined
+  }
+
   const confirmToolCall = useCallback(
     async (_messageId: string, toolCallId: string) => {
       if (!sessionToken || !pendingToolCalls) return
@@ -210,6 +299,9 @@ export function useProjectChat({
               dueDate: args.dueDate as string,
               time: (args.time as string) || undefined,
               endTime: (args.endTime as string) || undefined,
+              parentTaskId: args.parentTaskId
+                ? (args.parentTaskId as Id<"tasks">)
+                : undefined,
             })
             resultMessage = `Task "${result.title}" created successfully.`
             linkedEntity = {
@@ -381,7 +473,15 @@ export function useProjectChat({
       const wasEmptyChat =
         activeChatId && (chatData?.messages.length ?? 0) === 0
 
-      let effectiveChatId: Id<"chats"> | null = activeChatId
+      const chatMissingOnServer = activeChatId && chatData === null
+
+      if (chatMissingOnServer && typeof window !== "undefined") {
+        window.localStorage.removeItem("lastOpenedChatId")
+      }
+
+      let effectiveChatId: Id<"chats"> | null = chatMissingOnServer
+        ? null
+        : activeChatId
 
       if (!effectiveChatId && projectToLink) {
         const { chatId } = await createChatMutation({
@@ -435,7 +535,6 @@ export function useProjectChat({
               : localMessages.map((m) => ({ role: m.role, content: m.content }))
 
         const last20 = history.slice(-20)
-        const apiMessages = [...last20, { role: "user" as const, content }]
 
         const enrichedContext: AiContext | null = aiContext
           ? {
@@ -447,54 +546,252 @@ export function useProjectChat({
             }
           : null
 
-        const { fullContent, fullReasoning, toolCalls } = await streamResponse(
-          apiMessages,
-          abortController.signal,
-          (delta) => {
-            setStreamingMessage((prev) => {
-              if (!prev) return prev
+        type ApiMsg = { role: string; content?: string | null; tool_calls?: unknown[]; tool_call_id?: string }
+        let currentApiMessages: ApiMsg[] = [...last20, { role: "user" as const, content }]
+
+        let finalContent = ""
+        let finalReasoning = ""
+        let finalWriteToolCalls: ToolCallWithStatus[] = []
+        const MAX_TOOL_ROUNDS = 3
+
+        for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+          setStreamingMessage({ id: streamId, role: "assistant", content: "", reasoning: "" })
+
+          const { fullContent, fullReasoning, toolCalls } = await streamResponse(
+            currentApiMessages,
+            abortController.signal,
+            (delta) => {
+              setStreamingMessage((prev) => {
+                if (!prev) return prev
+                return {
+                  ...prev,
+                  content: delta.content ? prev.content + delta.content : prev.content,
+                  reasoning: delta.reasoning
+                    ? (prev.reasoning || "") + delta.reasoning
+                    : prev.reasoning,
+                }
+              })
+            },
+            () => {
+              setStreamingMessage((prev) => {
+                if (!prev) return prev
+                if (!prev.content) {
+                  return { ...prev, content: "Checking for conflicts..." }
+                }
+                return prev
+              })
+            },
+            useClaudeFirstPrompt,
+            enrichedContext,
+          )
+
+          const readOnlyTCs = toolCalls.filter((tc) => tc.name && isReadOnlyTool(tc.name))
+          const writeTCs = toolCalls.filter((tc) => tc.name && !isReadOnlyTool(tc.name))
+
+          if (readOnlyTCs.length > 0 && writeTCs.length === 0 && sessionToken) {
+            const assistantMsg: ApiMsg = {
+              role: "assistant",
+              content: fullContent || null,
+              tool_calls: readOnlyTCs.map((tc) => ({
+                id: tc.id || crypto.randomUUID(),
+                type: "function",
+                function: { name: tc.name, arguments: tc.arguments },
+              })),
+            }
+            const toolResultMsgs: ApiMsg[] = []
+            for (const tc of readOnlyTCs) {
+              let parsedArgs: Record<string, unknown> = {}
+              try { parsedArgs = JSON.parse(tc.arguments) } catch { /* skip */ }
+              const result = await executeReadOnlyTool(tc.name, parsedArgs, sessionToken)
+              toolResultMsgs.push({
+                role: "tool",
+                tool_call_id: tc.id || "",
+                content: JSON.stringify(result),
+              })
+            }
+            currentApiMessages = [...currentApiMessages, assistantMsg, ...toolResultMsgs]
+            continue
+          }
+
+          finalContent = fullContent
+          finalReasoning = fullReasoning
+
+          const parsedToolCalls: ToolCallWithStatus[] = writeTCs
+            .map((tc) => {
+              let parsedArgs: Record<string, unknown> = {}
+              try { parsedArgs = JSON.parse(tc.arguments) } catch { parsedArgs = {} }
               return {
-                ...prev,
-                content: delta.content ? prev.content + delta.content : prev.content,
-                reasoning: delta.reasoning
-                  ? (prev.reasoning || "") + delta.reasoning
-                  : prev.reasoning,
+                toolCall: { id: tc.id || crypto.randomUUID(), name: tc.name, arguments: parsedArgs },
+                status: "pending" as const,
               }
             })
-          },
-          () => {
-            setStreamingMessage((prev) => {
-              if (!prev) return prev
-              if (!prev.content) {
-                return { ...prev, content: "Processing your request..." }
-              }
-              return prev
-            })
-          },
-          useClaudeFirstPrompt,
-          enrichedContext,
-        )
+          // Automatic task breakdown: expand long createTask calls into AI-generated subtasks
+          const expandedToolCalls: ToolCallWithStatus[] = []
+          for (const tc of parsedToolCalls) {
+            if (tc.toolCall.name !== "createTask") {
+              expandedToolCalls.push(tc)
+              continue
+            }
 
-        const parsedToolCalls: ToolCallWithStatus[] = toolCalls
-          .filter((tc) => tc.name)
-          .map((tc) => {
-            let parsedArgs: Record<string, unknown> = {}
+            const args = tc.toolCall.arguments
+            const startMins = parseTimeToMinutesClient(args.time as string | undefined)
+            const endMins = parseTimeToMinutesClient(args.endTime as string | undefined)
+
+            if (startMins == null || endMins == null || endMins <= startMins) {
+              expandedToolCalls.push(tc)
+              continue
+            }
+
+            const duration = endMins - startMins
+            if (duration <= BREAKDOWN_THRESHOLD_MINUTES) {
+              expandedToolCalls.push(tc)
+              continue
+            }
+
+            let steps: { title: string; minutes: number }[] | null = null
             try {
-              parsedArgs = JSON.parse(tc.arguments)
+              const resp = await fetch("/api/generate-task-breakdown", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  title: args.title as string,
+                  description: "",
+                  projectName: args.projectName as string | undefined,
+                  phaseName: args.phaseName as string | undefined,
+                  totalMinutes: duration,
+                }),
+              })
+              const json = await resp.json().catch(() => ({}))
+              if (resp.ok && Array.isArray(json.steps)) {
+                steps = json.steps
+                  .map((s: any) => ({
+                    title: typeof s.title === "string" ? s.title.trim() : "",
+                    minutes:
+                      typeof s.minutes === "number" && s.minutes > 0
+                        ? Math.min(Math.max(s.minutes, MIN_CHUNK_MINUTES), MAX_CHUNK_MINUTES)
+                        : 60,
+                  }))
+                  .filter((s) => s.title.length > 0)
+              }
             } catch {
-              parsedArgs = {}
+              // fall through to time-based split
             }
-            return {
-              toolCall: { id: tc.id || crypto.randomUUID(), name: tc.name, arguments: parsedArgs },
-              status: "pending" as const,
-            }
-          })
 
-        const hasToolCalls = parsedToolCalls.length > 0
-        let finalContent = fullContent
+            const groupId = crypto.randomUUID()
+            let cursor = startMins
+
+            if (steps && steps.length > 0) {
+              for (const step of steps) {
+                if (cursor >= endMins) break
+                const allotted = Math.min(step.minutes, MAX_CHUNK_MINUTES)
+                const chunkStart = cursor
+                const chunkEnd = Math.min(chunkStart + allotted, endMins)
+                cursor = chunkEnd
+
+                expandedToolCalls.push({
+                  ...tc,
+                  toolCall: {
+                    ...tc.toolCall,
+                    id: crypto.randomUUID(),
+                    arguments: {
+                      ...args,
+                      title: step.title,
+                      time: minutesToTimeClient(chunkStart),
+                      endTime: minutesToTimeClient(chunkEnd),
+                    },
+                  },
+                  status: "pending",
+                  // @ts-expect-error: ad-hoc metadata for grouping
+                  groupId,
+                })
+              }
+            } else {
+              // Fallback: even time-based split without changing title semantics
+              const totalMinutes = duration
+              const idealChunks = Math.ceil(totalMinutes / 60)
+              const chunkCount = Math.max(1, idealChunks)
+              const chunkMinutes = Math.max(
+                MIN_CHUNK_MINUTES,
+                Math.min(MAX_CHUNK_MINUTES, 60),
+              )
+
+              while (cursor < endMins) {
+                const chunkStart = cursor
+                const chunkEnd = Math.min(chunkStart + chunkMinutes, endMins)
+                cursor = chunkEnd
+
+                expandedToolCalls.push({
+                  ...tc,
+                  toolCall: {
+                    ...tc.toolCall,
+                    id: crypto.randomUUID(),
+                    arguments: {
+                      ...args,
+                      time: minutesToTimeClient(chunkStart),
+                      endTime: minutesToTimeClient(chunkEnd),
+                    },
+                  },
+                  status: "pending",
+                  // @ts-expect-error: ad-hoc metadata for grouping
+                  groupId,
+                })
+              }
+            }
+          }
+
+          if (expandedToolCalls.length > 0 && sessionToken && convexClient) {
+            // Proactively snap created tasks to the nearest free slot using conflict suggestions
+            for (const tc of expandedToolCalls) {
+              if (tc.toolCall.name !== "createTask") continue
+              const args = tc.toolCall.arguments
+              const date = args.dueDate as string | undefined
+              const time = args.time as string | undefined
+              const endTime = (args.endTime as string | undefined) || undefined
+              if (!date || !time) continue
+              try {
+                const result = await convexClient.query(api.conflicts.checkTimeConflicts, {
+                  token: sessionToken,
+                  date,
+                  startTime: time,
+                  endTime,
+                  excludeTaskKey: undefined,
+                  excludeEventId: undefined,
+                })
+                if (result.hasConflicts && result.suggestedSlots.length > 0) {
+                  const slot = result.suggestedSlots[0]
+                  args.dueDate = slot.date
+                  args.time = slot.startTime
+                  args.endTime = slot.endTime
+                }
+              } catch {
+                // non-fatal; conflicts will still be surfaced below
+              }
+            }
+          }
+
+          if (expandedToolCalls.length > 0 && sessionToken) {
+            for (const tc of expandedToolCalls) {
+              const schedulingTools = [
+                "createTask",
+                "updateTaskDueDate",
+                "updateTaskTime",
+                "createCalendarEvent",
+                "moveCalendarEvent",
+              ]
+              if (schedulingTools.includes(tc.toolCall.name)) {
+                tc.conflictWarning = await runConflictCheck(tc.toolCall.arguments, sessionToken)
+              }
+            }
+          }
+
+          finalWriteToolCalls = expandedToolCalls
+          break
+        }
+
+        const hasToolCalls = finalWriteToolCalls.length > 0
 
         if (hasToolCalls && !finalContent.trim()) {
-          finalContent = parsedToolCalls
+          finalContent = finalWriteToolCalls
             .map((tc) => buildToolConfirmationText(tc.toolCall.name, tc.toolCall.arguments))
             .join("\n\n")
           finalContent += "\n\nShall I proceed?"
@@ -506,7 +803,7 @@ export function useProjectChat({
             chatId: effectiveChatId,
             role: "assistant",
             content: finalContent,
-            reasoning: fullReasoning || undefined,
+            reasoning: finalReasoning || undefined,
           })
           if (projectToLink && !activeChatId) {
             onProjectLinked(effectiveChatId)
@@ -541,13 +838,13 @@ export function useProjectChat({
               id: streamId,
               role: "assistant",
               content: finalContent,
-              reasoning: fullReasoning,
+              reasoning: finalReasoning,
             },
           ])
         }
 
         if (hasToolCalls) {
-          setPendingToolCalls(parsedToolCalls)
+          setPendingToolCalls(finalWriteToolCalls)
         }
 
         setStreamingMessage(null)

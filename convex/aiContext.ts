@@ -133,6 +133,7 @@ export const getContext = query({
 
     return {
       userName: user.email.split("@")[0],
+      dailyTaskLimit: user.dailyTaskLimit ?? null,
       projects: projectSummaries,
       calendarEvents: calendarEventSummaries,
     };

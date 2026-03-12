@@ -69,7 +69,7 @@ export function CalendarWeekGrid({
       </div>
 
       {/* Time grid */}
-      <div className="flex flex-1 overflow-y-auto">
+      <div className="flex flex-1 overflow-auto">
         {/* Hour labels */}
         <div className="w-14 shrink-0">
           {HOURS.map((hour) => (

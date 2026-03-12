@@ -108,6 +108,16 @@ export default function ChatPage() {
   }, [activeChatId]);
 
   useEffect(() => {
+    if (activeChatId && chatData === null) {
+      setActiveChatId(null);
+      window.localStorage.removeItem("lastOpenedChatId");
+      if (searchParams.get("chatId")) {
+        router.replace("/chat", { scroll: false });
+      }
+    }
+  }, [activeChatId, chatData, router, searchParams]);
+
+  useEffect(() => {
     if (activeChatId && !searchParams.get("chatId")) {
       router.replace(`/chat?chatId=${activeChatId}`, { scroll: false });
     }

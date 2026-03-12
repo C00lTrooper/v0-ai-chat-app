@@ -6,7 +6,7 @@ const TOOLS = [
     function: {
       name: "createTask",
       description:
-        "Create a new task in a project phase. Use when the user asks to add, create, or schedule a new task.",
+        "Create a new task in a project phase. Use when the user asks to add, create, or schedule a new task. Task titles should describe a clear, concrete outcome (e.g. 'Draft hero section copy') rather than a generic label.",
       parameters: {
         type: "object",
         properties: {
@@ -18,6 +18,11 @@ const TOOLS = [
           dueDate: { type: "string", description: "Due date in YYYY-MM-DD format" },
           time: { type: "string", description: "Start time, e.g. 9:00 AM" },
           endTime: { type: "string", description: "Optional end time, e.g. 10:00 AM" },
+          parentTaskId: {
+            type: "string",
+            description:
+              "Optional parent task id. Use when creating automatic chunk subtasks so they can be grouped.",
+          },
         },
         required: ["projectId", "projectName", "phaseOrder", "phaseName", "title", "dueDate"],
       },
@@ -122,6 +127,31 @@ const TOOLS = [
       },
     },
   },
+  {
+    type: "function" as const,
+    function: {
+      name: "checkTimeConflicts",
+      description:
+        "Check for scheduling conflicts on a given date and time window. ALWAYS call this BEFORE any createTask, updateTaskDueDate, updateTaskTime, createCalendarEvent, or moveCalendarEvent to detect overlapping tasks, calendar events, and daily task limits. The system will auto-execute this and return conflict data so you can advise the user.",
+      parameters: {
+        type: "object",
+        properties: {
+          date: { type: "string", description: "Target date in YYYY-MM-DD format" },
+          startTime: { type: "string", description: "Proposed start time, e.g. 2:00 PM" },
+          endTime: { type: "string", description: "Proposed end time, e.g. 3:00 PM. Defaults to 1 hour if omitted." },
+          excludeTaskKey: {
+            type: "string",
+            description: "Optional. 'projectId:phaseOrder:taskOrder' of a task being rescheduled, to exclude it from conflict detection.",
+          },
+          excludeEventId: {
+            type: "string",
+            description: "Optional. Calendar event ID being moved, to exclude from conflict detection.",
+          },
+        },
+        required: ["date", "startTime"],
+      },
+    },
+  },
 ];
 
 function buildSystemPrompt(context: AiContext): string {
@@ -153,6 +183,10 @@ function buildSystemPrompt(context: AiContext): string {
       `  - {{event:${e.id}:${e.title}}} — ${e.startDate} to ${e.endDate}${e.projectName ? ` (${e.projectName})` : ""}`,
   );
 
+  const dailyLimitNote = context.dailyTaskLimit
+    ? `\n- Daily task limit: ${context.dailyTaskLimit} tasks per day`
+    : "";
+
   const currentProjectNote = context.currentProjectId
     ? `\nThe user is currently viewing project: ${context.currentProjectName} (ID: ${context.currentProjectId}). Default actions to this project unless otherwise specified.`
     : "";
@@ -161,7 +195,7 @@ function buildSystemPrompt(context: AiContext): string {
 
 ## User Context
 - User: ${context.userName}
-- Today: ${context.todayDate}${currentProjectNote}
+- Today: ${context.todayDate}${dailyLimitNote}${currentProjectNote}
 
 ## Projects
 ${projectLines.length > 0 ? projectLines.join("\n") : "  (no projects yet)"}
@@ -183,7 +217,17 @@ ${eventLines.length > 0 ? eventLines.join("\n") : "  (no calendar events yet)"}
 8. When creating tasks, pick the most relevant existing phase. If the user doesn't specify, choose the best match.
 9. Dates should be in YYYY-MM-DD format for tool calls.
 10. Times should be in 12-hour format (e.g. "9:00 AM", "2:30 PM") for tool calls. Every task has a startTime; endTime is optional.
-11. When the user asks about scheduled times (e.g. "what do I have at 3pm?"), use the startTime/endTime data above to answer. When moving a task to a new time, use updateTaskTime (same day) or updateTaskDueDate with newStartTime/newEndTime (different day).`;
+11. When the user asks about scheduled times (e.g. "what do I have at 3pm?"), use the startTime/endTime data above to answer. When moving a task to a new time, use updateTaskTime (same day) or updateTaskDueDate with newStartTime/newEndTime (different day).
+
+## Conflict Detection Rules
+12. **ALWAYS call checkTimeConflicts BEFORE any scheduling action** (createTask, updateTaskDueDate, updateTaskTime, createCalendarEvent, moveCalendarEvent). This is mandatory — never skip this step.
+13. When checkTimeConflicts returns conflicts, present them clearly with a ⚠️ warning. Show each conflict (time overlaps, calendar event overlaps, daily limit) and offer 2-3 alternative time slots from the suggestedSlots field.
+14. If the user asks to schedule at a conflicting time, show the conflict and alternatives, then ask if they want to proceed anyway or pick an alternative. Only call the write tool after the user decides.
+15. When rescheduling multiple tasks at once, check conflicts sequentially for each task, distributing across free slots. Present the full proposed schedule for confirmation before executing any writes.
+16. When rescheduling a task, pass its excludeTaskKey (projectId:phaseOrder:taskOrder) to checkTimeConflicts so it doesn't conflict with itself.
+17. When moving a calendar event, pass its excludeEventId to checkTimeConflicts.
+18. When planning or creating tasks, prefer breaking work into focused chunks of roughly 45–75 minutes, aiming for about 60 minutes per task when possible.
+19. Task names must be clear, specific, and outcome-based (e.g. "Outline onboarding email sequence" instead of "Emails" or "Misc work"). Avoid generic or vague titles.`;
 }
 
 export async function POST(request: Request) {

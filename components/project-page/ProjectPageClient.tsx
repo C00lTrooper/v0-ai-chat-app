@@ -270,6 +270,179 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
     }
   };
 
+  const parseTimeToMinutes = (time: string | undefined): number | null => {
+    if (!time) return null;
+    const t = time.trim().toUpperCase();
+    const match = t.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/);
+    if (!match) return null;
+    let hours = parseInt(match[1], 10);
+    const minutes = parseInt(match[2], 10);
+    const ampm = match[3];
+    if (ampm === "PM" && hours < 12) hours += 12;
+    if (ampm === "AM" && hours === 12) hours = 0;
+    return hours * 60 + minutes;
+  };
+
+  const minutesToTime = (mins: number): string => {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    const ampm = h >= 12 ? "PM" : "AM";
+    const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+    return `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
+  };
+
+  const MAX_TASK_MINUTES = 2 * 60;
+  const DEFAULT_TASK_MINUTES = 60;
+
+  const normalizeGeneratedProject = async (
+    data: Project,
+    token: string,
+  ): Promise<Project> => {
+    if (!convexClient) return data;
+
+    const updatedPhases = [];
+
+    for (const phase of data.project_wbs || []) {
+      const newTasks: typeof phase.tasks = [];
+
+      for (const task of phase.tasks || []) {
+        const startMins =
+          parseTimeToMinutes(task.time) ?? parseTimeToMinutes("9:00 AM")!;
+        const endMinsRaw =
+          task.endTime != null
+            ? parseTimeToMinutes(task.endTime)
+            : startMins + DEFAULT_TASK_MINUTES;
+        const endMins =
+          endMinsRaw != null ? endMinsRaw : startMins + DEFAULT_TASK_MINUTES;
+        const duration = Math.max(1, endMins - startMins);
+
+        const chunks: typeof phase.tasks = [];
+
+        if (duration <= MAX_TASK_MINUTES) {
+          chunks.push({
+            ...task,
+            time: minutesToTime(startMins),
+            endTime: minutesToTime(endMins),
+          });
+        } else {
+          // Use AI to decompose into distinct, specific steps with durations
+          let steps: { title: string; minutes: number }[] | null = null;
+          try {
+            const resp = await fetch("/api/generate-task-breakdown", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                title: task.name,
+                description: phase.description,
+                projectName: data.project_name,
+                phaseName: phase.name,
+                totalMinutes: duration,
+              }),
+            });
+            const json: { steps?: { title?: string; minutes?: number }[] } =
+              await resp.json().catch(() => ({} as any));
+            if (resp.ok && Array.isArray(json.steps)) {
+              steps = json.steps
+                .map((s) => ({
+                  title:
+                    typeof s.title === "string" ? s.title.trim() : task.name,
+                  minutes:
+                    typeof s.minutes === "number" && s.minutes > 0
+                      ? Math.min(
+                          Math.max(s.minutes, 30),
+                          MAX_TASK_MINUTES,
+                        )
+                      : DEFAULT_TASK_MINUTES,
+                }))
+                .filter((s) => s.title.length > 0);
+            }
+          } catch {
+            // fall back to time-based split below
+          }
+
+          let cursor = startMins;
+          if (steps && steps.length > 0) {
+            for (const step of steps) {
+              if (cursor >= endMins) break;
+              const allotted = Math.min(step.minutes, MAX_TASK_MINUTES);
+              const chunkStart = cursor;
+              const chunkEnd = Math.min(chunkStart + allotted, endMins);
+              cursor = chunkEnd;
+
+              chunks.push({
+                ...task,
+                name: step.title,
+                time: minutesToTime(chunkStart),
+                endTime: minutesToTime(chunkEnd),
+              });
+            }
+          } else {
+            // Fallback: even time-based split, but keep within 2h max
+            while (cursor < endMins) {
+              const chunkEnd = Math.min(
+                cursor + DEFAULT_TASK_MINUTES,
+                endMins,
+              );
+              chunks.push({
+                ...task,
+                time: minutesToTime(cursor),
+                endTime: minutesToTime(chunkEnd),
+              });
+              cursor = chunkEnd;
+            }
+          }
+        }
+
+        // For each chunk, run conflict detection and snap to nearest free slot if needed
+        for (const chunk of chunks) {
+          let attempts = 0;
+          while (attempts < 3) {
+            try {
+              const result = await convexClient.query(
+                api.conflicts.checkTimeConflicts,
+                {
+                  token,
+                  date: chunk.date,
+                  startTime: chunk.time,
+                  endTime: chunk.endTime,
+                  excludeTaskKey: undefined,
+                  excludeEventId: undefined,
+                },
+              );
+              if (!result.hasConflicts) break;
+              if (!result.suggestedSlots?.length) break;
+              const slot = result.suggestedSlots[0];
+              chunk.date = slot.date;
+              chunk.time = slot.startTime;
+              chunk.endTime = slot.endTime;
+            } catch {
+              break;
+            }
+            attempts += 1;
+          }
+          newTasks.push(chunk);
+        }
+      }
+
+      // Reassign task orders sequentially after splitting
+      const reNumberedTasks =
+        newTasks?.map((t, idx) => ({
+          ...t,
+          order: idx,
+        })) ?? [];
+
+      updatedPhases.push({
+        ...phase,
+        tasks: reNumberedTasks,
+      });
+    }
+
+    return {
+      ...data,
+      project_wbs: updatedPhases as Project["project_wbs"],
+    };
+  };
+
   const handleGenerateProject = async () => {
     if (!sessionToken || !project || generating) return;
     setGenerating(true);
@@ -305,17 +478,22 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
       const shouldUpdateTargetDate =
         !project.targetDate?.trim() && generatedTargetDate;
 
+      const normalizedData = await normalizeGeneratedProject(
+        json.data as Project,
+        sessionToken,
+      );
+
       await convexClient.mutation(api.projects.update, {
         token: sessionToken,
         projectId: project._id as Id<"projects">,
-        data: JSON.stringify(json.data),
+        data: JSON.stringify(normalizedData),
         ...(shouldUpdateTargetDate && { targetDate: generatedTargetDate }),
       });
       setProject((prev) =>
         prev
           ? {
               ...prev,
-              data: JSON.stringify(json.data),
+              data: JSON.stringify(normalizedData),
               ...(shouldUpdateTargetDate && {
                 targetDate: generatedTargetDate,
               }),
