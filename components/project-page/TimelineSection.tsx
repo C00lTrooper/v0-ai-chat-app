@@ -200,7 +200,7 @@ export function TimelineSection({ project }: TimelineSectionProps) {
     };
   }, [viewAll, sessionToken]);
 
-  const phases = viewAll ? allPhases ?? [] : projectPhases;
+  const phases = viewAll ? (allPhases ?? []) : projectPhases;
 
   const hasPhases = phases.length > 0;
 
@@ -378,7 +378,7 @@ export function TimelineSection({ project }: TimelineSectionProps) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Timeline</h1>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -387,7 +387,7 @@ export function TimelineSection({ project }: TimelineSectionProps) {
               : "Visualize project phases on a timeline"}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1 rounded-lg border border-border bg-card p-1">
             <Button
               variant={zoom === "week" ? "secondary" : "ghost"}
@@ -411,7 +411,7 @@ export function TimelineSection({ project }: TimelineSectionProps) {
           <Button
             variant={viewAll ? "secondary" : "ghost"}
             size="sm"
-            className="h-7 px-2.5 text-xs"
+            className="h-7 px-2.5 text-xs bg-muted/40 hover:bg-muted/70"
             onClick={() => setViewAll((v) => !v)}
             disabled={viewAll && loadingAll}
           >

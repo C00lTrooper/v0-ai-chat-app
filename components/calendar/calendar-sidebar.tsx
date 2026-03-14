@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronLeft, ChevronRight, ChevronUp } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronUp, PanelLeftClose } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -26,6 +26,8 @@ interface CalendarSidebarProps {
   projects: CalendarProject[];
   visibleProjectIds: Set<string>;
   onToggleProject: (id: string) => void;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
 export function CalendarSidebar({
@@ -35,6 +37,8 @@ export function CalendarSidebar({
   projects,
   visibleProjectIds,
   onToggleProject,
+  collapsed = false,
+  onToggleCollapse,
 }: CalendarSidebarProps) {
   const [miniMonth, setMiniMonth] = useState(
     () => new Date(currentDate.getFullYear(), currentDate.getMonth(), 1),
@@ -59,84 +63,117 @@ export function CalendarSidebar({
     }
   };
 
+  if (collapsed && onToggleCollapse) {
+    return (
+      <aside className="flex h-full min-h-0 w-full shrink-0 flex-col border-b border-border bg-background md:w-12 md:border-b-0 md:border-r">
+        <div className="flex flex-1 flex-col items-center py-3">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8"
+            onClick={onToggleCollapse}
+            title="Expand sidebar"
+            aria-label="Expand sidebar"
+          >
+            <ChevronRight className="size-4" />
+          </Button>
+        </div>
+      </aside>
+    );
+  }
+
   return (
-    <aside className="flex w-full shrink-0 flex-col border-b border-border bg-background md:w-60 md:border-b-0 md:border-r">
-      <div className="p-3 pb-1">
-        {/* Mini calendar header */}
-        <div className="mb-2 flex items-center justify-between">
-          <span className="text-sm font-semibold">
-            {miniMonth.toLocaleDateString("en-US", {
-              month: "long",
-              year: "numeric",
+    <aside className="flex h-full min-h-0 w-full shrink-0 flex-col border-b border-border bg-background md:w-60 md:border-b-0 md:border-r">
+      <div className="flex items-start justify-between gap-1 pr-1">
+        <div className="min-w-0 flex-1 p-3 pb-1">
+          {/* Mini calendar header */}
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-sm font-semibold">
+              {miniMonth.toLocaleDateString("en-US", {
+                month: "long",
+                year: "numeric",
+              })}
+            </span>
+            <div className="flex">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-6"
+                onClick={() => navigateMini(-1)}
+              >
+                <ChevronLeft className="size-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-6"
+                onClick={() => navigateMini(1)}
+              >
+                <ChevronRight className="size-3.5" />
+              </Button>
+            </div>
+          </div>
+
+          {/* Day name headers */}
+          <div className="mb-0.5 grid grid-cols-7">
+            {DAY_NAMES.map((name, i) => (
+              <div
+                key={i}
+                className="text-center text-[10px] font-medium text-muted-foreground"
+              >
+                {name}
+              </div>
+            ))}
+          </div>
+
+          {/* Day grid */}
+          <div className="grid grid-cols-7">
+            {miniDays.map((day, i) => {
+              const inMonth = day.getMonth() === miniMonth.getMonth();
+              const selected = isSameDay(day, selectedDate);
+              const today = isToday(day);
+              return (
+                <button
+                  key={i}
+                  onClick={() => handleSelectDay(day)}
+                  className={cn(
+                    "mx-auto flex size-7 items-center justify-center rounded-full text-xs transition-colors",
+                    !inMonth && "text-muted-foreground/40",
+                    inMonth && !selected && !today && "text-foreground",
+                    today &&
+                      !selected &&
+                      "bg-primary font-bold text-primary-foreground",
+                    selected &&
+                      today &&
+                      "bg-primary font-bold text-primary-foreground ring-2 ring-primary/30",
+                    selected &&
+                      !today &&
+                      "bg-accent font-semibold text-accent-foreground",
+                    !selected && !today && "hover:bg-accent/50",
+                  )}
+                >
+                  {day.getDate()}
+                </button>
+              );
             })}
-          </span>
-          <div className="flex">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-6"
-              onClick={() => navigateMini(-1)}
-            >
-              <ChevronLeft className="size-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-6"
-              onClick={() => navigateMini(1)}
-            >
-              <ChevronRight className="size-3.5" />
-            </Button>
           </div>
         </div>
-
-        {/* Day name headers */}
-        <div className="mb-0.5 grid grid-cols-7">
-          {DAY_NAMES.map((name, i) => (
-            <div
-              key={i}
-              className="text-center text-[10px] font-medium text-muted-foreground"
-            >
-              {name}
-            </div>
-          ))}
-        </div>
-
-        {/* Day grid */}
-        <div className="grid grid-cols-7">
-          {miniDays.map((day, i) => {
-            const inMonth = day.getMonth() === miniMonth.getMonth();
-            const selected = isSameDay(day, selectedDate);
-            const today = isToday(day);
-            return (
-              <button
-                key={i}
-                onClick={() => handleSelectDay(day)}
-                className={cn(
-                  "mx-auto flex size-7 items-center justify-center rounded-full text-xs transition-colors",
-                  !inMonth && "text-muted-foreground/40",
-                  inMonth && !selected && !today && "text-foreground",
-                  today &&
-                    !selected &&
-                    "bg-primary font-bold text-primary-foreground",
-                  selected &&
-                    today &&
-                    "bg-primary font-bold text-primary-foreground ring-2 ring-primary/30",
-                  selected &&
-                    !today &&
-                    "bg-accent font-semibold text-accent-foreground",
-                  !selected && !today && "hover:bg-accent/50",
-                )}
-              >
-                {day.getDate()}
-              </button>
-            );
-          })}
-        </div>
+        {onToggleCollapse && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="mt-2 size-8 shrink-0"
+            onClick={onToggleCollapse}
+            title="Collapse sidebar"
+            aria-label="Collapse sidebar"
+          >
+            <PanelLeftClose className="size-4" />
+          </Button>
+        )}
       </div>
 
       {/* My Projects */}
-      <div className="mt-2 flex-1 overflow-y-auto px-3">
+      <div className="mt-2 flex-1 overflow-y-auto px-3 pr-2">
         <Collapsible open={projectsOpen} onOpenChange={setProjectsOpen}>
           <CollapsibleTrigger asChild>
             <button className="flex w-full items-center justify-between py-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground">

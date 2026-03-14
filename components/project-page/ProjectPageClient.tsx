@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
+import { useLastVisitedProject } from "@/components/last-visited-project-provider";
 import { convexClient } from "@/lib/convex";
 import { api } from "@/convex/_generated/api";
 import { toast } from "@/hooks/use-toast";
@@ -72,7 +73,7 @@ function ProjectPageSkeleton() {
           </div>
         </aside>
 
-        <main className="min-h-0 flex-1 overflow-y-auto p-8">
+        <main className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:p-8">
           <Skeleton className="mb-2 h-8 w-48" />
           <Skeleton className="mb-8 h-4 w-72" />
           <div className="space-y-4">
@@ -131,6 +132,7 @@ function SectionContent({
 export function ProjectPageClient({ projectId }: { projectId: string }) {
   const { isAuthenticated, sessionToken } = useAuth();
   const router = useRouter();
+  const lastVisitedCtx = useLastVisitedProject();
   const [project, setProject] = useState<ProjectData | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeSection, setActiveSection] = useState<Section>("overview");
@@ -195,6 +197,12 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
       cancelled = true;
     };
   }, [projectId, isAuthenticated, sessionToken, router]);
+
+  useEffect(() => {
+    if (project) {
+      lastVisitedCtx?.setLastVisitedProject(project._id, project.projectName);
+    }
+  }, [project, lastVisitedCtx]);
 
   if (loading) {
     return <ProjectPageSkeleton />;
@@ -340,7 +348,7 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
               }),
             });
             const json: { steps?: { title?: string; minutes?: number }[] } =
-              await resp.json().catch(() => ({} as any));
+              await resp.json().catch(() => ({}) as any);
             if (resp.ok && Array.isArray(json.steps)) {
               steps = json.steps
                 .map((s) => ({
@@ -348,10 +356,7 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
                     typeof s.title === "string" ? s.title.trim() : task.name,
                   minutes:
                     typeof s.minutes === "number" && s.minutes > 0
-                      ? Math.min(
-                          Math.max(s.minutes, 30),
-                          MAX_TASK_MINUTES,
-                        )
+                      ? Math.min(Math.max(s.minutes, 30), MAX_TASK_MINUTES)
                       : DEFAULT_TASK_MINUTES,
                 }))
                 .filter((s) => s.title.length > 0);
@@ -379,10 +384,7 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
           } else {
             // Fallback: even time-based split, but keep within 2h max
             while (cursor < endMins) {
-              const chunkEnd = Math.min(
-                cursor + DEFAULT_TASK_MINUTES,
-                endMins,
-              );
+              const chunkEnd = Math.min(cursor + DEFAULT_TASK_MINUTES, endMins);
               chunks.push({
                 ...task,
                 time: minutesToTime(cursor),
@@ -625,7 +627,7 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
           )}
         </aside>
 
-        <main className="min-h-0 flex-1 overflow-y-auto p-8">
+        <main className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:p-8">
           <SectionContent
             section={activeSection}
             project={project}

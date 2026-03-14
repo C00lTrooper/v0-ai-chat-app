@@ -16,7 +16,6 @@ import {
   XAxis,
   YAxis,
   CartesianGrid,
-  Tooltip,
   Legend,
   ResponsiveContainer,
 } from "recharts";
@@ -79,7 +78,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
 
@@ -203,7 +206,9 @@ function BudgetContent({ token }: { token: string }) {
   const [filterType, setFilterType] = useState<"all" | TransactionType>("all");
   const [filterCategory, setFilterCategory] = useState<string>("all");
   const [filterProject, setFilterProject] = useState<string>("all");
-  const [filterDateFrom, setFilterDateFrom] = useState<Date | undefined>(undefined);
+  const [filterDateFrom, setFilterDateFrom] = useState<Date | undefined>(
+    undefined,
+  );
   const [filterDateTo, setFilterDateTo] = useState<Date | undefined>(undefined);
 
   // Pie chart carousel
@@ -212,7 +217,8 @@ function BudgetContent({ token }: { token: string }) {
   const pieViewIndex = PIE_CHART_VIEWS.findIndex((v) => v.key === pieView);
 
   function prevPie() {
-    const idx = (pieViewIndex - 1 + PIE_CHART_VIEWS.length) % PIE_CHART_VIEWS.length;
+    const idx =
+      (pieViewIndex - 1 + PIE_CHART_VIEWS.length) % PIE_CHART_VIEWS.length;
     setPieView(PIE_CHART_VIEWS[idx].key);
   }
   function nextPie() {
@@ -225,7 +231,8 @@ function BudgetContent({ token }: { token: string }) {
   const timeViewIndex = TIME_CHART_VIEWS.findIndex((v) => v.key === timeView);
 
   function prevTime() {
-    const idx = (timeViewIndex - 1 + TIME_CHART_VIEWS.length) % TIME_CHART_VIEWS.length;
+    const idx =
+      (timeViewIndex - 1 + TIME_CHART_VIEWS.length) % TIME_CHART_VIEWS.length;
     setTimeView(TIME_CHART_VIEWS[idx].key);
   }
   function nextTime() {
@@ -238,16 +245,26 @@ function BudgetContent({ token }: { token: string }) {
     if (!transactions) return [];
     return transactions.filter((t) => {
       if (filterType !== "all" && t.type !== filterType) return false;
-      if (filterCategory !== "all" && t.categoryId !== filterCategory) return false;
+      if (filterCategory !== "all" && t.categoryId !== filterCategory)
+        return false;
       if (filterProject !== "all") {
         if (filterProject === "__none__" && t.projectId) return false;
-        if (filterProject !== "__none__" && t.projectId !== filterProject) return false;
+        if (filterProject !== "__none__" && t.projectId !== filterProject)
+          return false;
       }
       if (filterDateFrom && t.date < filterDateFrom.getTime()) return false;
-      if (filterDateTo && t.date > endOfMonth(filterDateTo).getTime()) return false;
+      if (filterDateTo && t.date > endOfMonth(filterDateTo).getTime())
+        return false;
       return true;
     });
-  }, [transactions, filterType, filterCategory, filterProject, filterDateFrom, filterDateTo]);
+  }, [
+    transactions,
+    filterType,
+    filterCategory,
+    filterProject,
+    filterDateFrom,
+    filterDateTo,
+  ]);
 
   const totals = useMemo(() => {
     const income = (transactions ?? [])
@@ -269,15 +286,20 @@ function BudgetContent({ token }: { token: string }) {
     const expense = transactions
       .filter((t) => t.type === "expense")
       .reduce((s, t) => s + t.amount, 0);
-    if (income > 0) result.push({ name: "Income", value: income, color: "#10b981" });
-    if (expense > 0) result.push({ name: "Expense", value: expense, color: "#f43f5e" });
+    if (income > 0)
+      result.push({ name: "Income", value: income, color: "#10b981" });
+    if (expense > 0)
+      result.push({ name: "Expense", value: expense, color: "#f43f5e" });
     return result;
   }, [transactions]);
 
   // Chart data: By project (filterable by income/expense)
   const byProject = useMemo(() => {
     if (!transactions) return [];
-    const map = new Map<string, { name: string; value: number; color: string }>();
+    const map = new Map<
+      string,
+      { name: string; value: number; color: string }
+    >();
     let colorIdx = 0;
     for (const t of transactions) {
       if (t.type !== pieSubFilter) continue;
@@ -300,7 +322,10 @@ function BudgetContent({ token }: { token: string }) {
   // Chart data: By category (filterable by income/expense)
   const byCategory = useMemo(() => {
     if (!transactions) return [];
-    const map = new Map<string, { name: string; value: number; color: string }>();
+    const map = new Map<
+      string,
+      { name: string; value: number; color: string }
+    >();
     for (const t of transactions) {
       if (t.type !== pieSubFilter) continue;
       const cat = t.category;
@@ -322,7 +347,10 @@ function BudgetContent({ token }: { token: string }) {
   // Chart data: Monthly bar + cumulative balance line
   const monthlyData = useMemo(() => {
     if (!transactions) return [];
-    const map = new Map<string, { month: string; income: number; expense: number }>();
+    const map = new Map<
+      string,
+      { month: string; income: number; expense: number }
+    >();
     for (const t of transactions) {
       const key = format(new Date(t.date), "yyyy-MM");
       const label = format(new Date(t.date), "MMM yyyy");
@@ -372,7 +400,10 @@ function BudgetContent({ token }: { token: string }) {
 
     const largestExpense =
       expenses.length > 0
-        ? expenses.reduce((max, t) => (t.amount > max.amount ? t : max), expenses[0])
+        ? expenses.reduce(
+            (max, t) => (t.amount > max.amount ? t : max),
+            expenses[0],
+          )
         : null;
 
     const topCategory = (() => {
@@ -383,7 +414,10 @@ function BudgetContent({ token }: { token: string }) {
         if (existing) {
           existing.total += t.amount;
         } else {
-          map.set(key, { name: t.category?.name ?? "Uncategorized", total: t.amount });
+          map.set(key, {
+            name: t.category?.name ?? "Uncategorized",
+            total: t.amount,
+          });
         }
       }
       let best: { name: string; total: number } | null = null;
@@ -416,7 +450,8 @@ function BudgetContent({ token }: { token: string }) {
 
     const totalIncome = incomes.reduce((s, t) => s + t.amount, 0);
     const totalExpense = expenses.reduce((s, t) => s + t.amount, 0);
-    const savingsRate = totalIncome > 0 ? ((totalIncome - totalExpense) / totalIncome) * 100 : 0;
+    const savingsRate =
+      totalIncome > 0 ? ((totalIncome - totalExpense) / totalIncome) * 100 : 0;
 
     return {
       totalTransactions: all.length,
@@ -544,7 +579,10 @@ function BudgetContent({ token }: { token: string }) {
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
-              ${totals.income.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+              $
+              {totals.income.toLocaleString("en-US", {
+                minimumFractionDigits: 2,
+              })}
             </p>
           </CardContent>
         </Card>
@@ -557,7 +595,10 @@ function BudgetContent({ token }: { token: string }) {
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold text-rose-600 dark:text-rose-400">
-              ${totals.expense.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+              $
+              {totals.expense.toLocaleString("en-US", {
+                minimumFractionDigits: 2,
+              })}
             </p>
           </CardContent>
         </Card>
@@ -577,7 +618,8 @@ function BudgetContent({ token }: { token: string }) {
                   : "text-rose-600 dark:text-rose-400",
               )}
             >
-              ${totals.net.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+              $
+              {totals.net.toLocaleString("en-US", { minimumFractionDigits: 2 })}
             </p>
           </CardContent>
         </Card>
@@ -654,7 +696,9 @@ function BudgetContent({ token }: { token: string }) {
                     )}
                   >
                     <CalendarIcon className="mr-2 size-3.5" />
-                    {filterDateFrom ? format(filterDateFrom, "MMM d, yyyy") : "Start"}
+                    {filterDateFrom
+                      ? format(filterDateFrom, "MMM d, yyyy")
+                      : "Start"}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
@@ -827,7 +871,7 @@ function BudgetContent({ token }: { token: string }) {
         <div className="grid gap-4 lg:grid-cols-2">
           {/* Switchable pie chart */}
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-row items-center justify-center md:justify-between">
               <div className="flex items-center gap-2">
                 <Button
                   variant="ghost"
@@ -849,8 +893,8 @@ function BudgetContent({ token }: { token: string }) {
                   <ChevronRight className="size-4" />
                 </Button>
               </div>
-              {/* Dot indicators */}
-              <div className="flex gap-1.5">
+              {/* Dot indicators (hide on mobile) */}
+              <div className="hidden gap-1.5 md:flex">
                 {PIE_CHART_VIEWS.map((v, i) => (
                   <button
                     key={v.key}
@@ -903,39 +947,50 @@ function BudgetContent({ token }: { token: string }) {
                   No data yet
                 </p>
               ) : (
-                <ResponsiveContainer width="100%" height={280}>
-                  <PieChart>
-                    <Pie
-                      data={currentPieData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={60}
-                      outerRadius={100}
-                      paddingAngle={2}
-                      dataKey="value"
-                      nameKey="name"
-                      label={({ name, percent }) =>
-                        `${name} ${(percent * 100).toFixed(0)}%`
-                      }
-                    >
-                      {currentPieData.map((entry, i) => (
-                        <Cell key={i} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      formatter={(value: number) =>
-                        `$${value.toLocaleString("en-US", { minimumFractionDigits: 2 })}`
-                      }
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
+                <>
+                  <div className="[&_.recharts-layer]:outline-none [&_.recharts-sector]:outline-none [&_.recharts-sector]:stroke-transparent [&_.recharts-surface]:outline-none [&_.recharts-wrapper]:outline-none [&_.recharts-text]:hidden [&_.recharts-pie-label-line]:hidden md:[&_.recharts-text]:block md:[&_.recharts-pie-label-line]:block">
+                    <ResponsiveContainer width="100%" height={280}>
+                      <PieChart>
+                        <Pie
+                          data={currentPieData}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={60}
+                          outerRadius={100}
+                          paddingAngle={0}
+                          dataKey="value"
+                          nameKey="name"
+                          stroke="transparent"
+                          label={({ name, percent }) =>
+                            `${name} ${(percent * 100).toFixed(0)}%`
+                          }
+                        >
+                          {currentPieData.map((entry, i) => (
+                            <Cell key={i} fill={entry.color} />
+                          ))}
+                        </Pie>
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="mt-3 grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
+                    {currentPieData.map((entry) => (
+                      <div key={entry.name} className="flex items-center gap-2">
+                        <span
+                          className="inline-block size-2.5 rounded-full"
+                          style={{ backgroundColor: entry.color }}
+                        />
+                        <span className="truncate">{entry.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
               )}
             </CardContent>
           </Card>
 
           {/* Switchable time chart */}
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-row items-center justify-center md:justify-between">
               <div className="flex items-center gap-2">
                 <Button
                   variant="ghost"
@@ -957,7 +1012,7 @@ function BudgetContent({ token }: { token: string }) {
                   <ChevronRight className="size-4" />
                 </Button>
               </div>
-              <div className="flex gap-1.5">
+              <div className="hidden gap-1.5 md:flex">
                 {TIME_CHART_VIEWS.map((v, i) => (
                   <button
                     key={v.key}
@@ -980,68 +1035,99 @@ function BudgetContent({ token }: { token: string }) {
                   No data yet
                 </p>
               ) : timeView === "income-vs-expense" ? (
-                <ResponsiveContainer width="100%" height={280}>
-                  <ComposedChart data={monthlyData}>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                    <XAxis
-                      dataKey="month"
-                      tick={{ fontSize: 12 }}
-                      className="fill-muted-foreground"
-                    />
-                    <YAxis
-                      tick={{ fontSize: 12 }}
-                      className="fill-muted-foreground"
-                      tickFormatter={(v) => `$${v}`}
-                    />
-                    <Tooltip
-                      formatter={(value: number, name: string) => [
-                        `$${value.toLocaleString("en-US", { minimumFractionDigits: 2 })}`,
-                        name,
-                      ]}
-                    />
-                    <Legend />
-                    <Bar dataKey="income" name="Income" fill="#10b981" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="expense" name="Expense" fill="#f43f5e" radius={[4, 4, 0, 0]} />
-                  </ComposedChart>
-                </ResponsiveContainer>
+                <div className="[&_.recharts-layer]:outline-none [&_.recharts-cartesian-grid_line]:stroke-border/50 [&_.recharts-surface]:outline-none [&_.recharts-wrapper]:outline-none">
+                  <ResponsiveContainer width="100%" height={280}>
+                    <ComposedChart
+                      data={monthlyData}
+                      barCategoryGap={0}
+                      barGap={0}
+                    >
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        className="stroke-border"
+                      />
+                      <XAxis
+                        dataKey="month"
+                        tick={{ fontSize: 12 }}
+                        className="fill-muted-foreground"
+                      />
+                      <YAxis
+                        tick={{ fontSize: 12 }}
+                        className="fill-muted-foreground"
+                        tickFormatter={(v) => `$${v}`}
+                      />
+                      <Legend />
+                      <Bar
+                        dataKey="income"
+                        name="Income"
+                        fill="#10b981"
+                        radius={[4, 4, 0, 0]}
+                      />
+                      <Bar
+                        dataKey="expense"
+                        name="Expense"
+                        fill="#f43f5e"
+                        radius={[4, 4, 0, 0]}
+                      />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
               ) : (
-                <ResponsiveContainer width="100%" height={280}>
-                  <AreaChart data={monthlyData}>
-                    <defs>
-                      <linearGradient id="balanceGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                    <XAxis
-                      dataKey="month"
-                      tick={{ fontSize: 12 }}
-                      className="fill-muted-foreground"
-                    />
-                    <YAxis
-                      tick={{ fontSize: 12 }}
-                      className="fill-muted-foreground"
-                      tickFormatter={(v) => `$${v}`}
-                    />
-                    <Tooltip
-                      formatter={(value: number) => [
-                        `$${value.toLocaleString("en-US", { minimumFractionDigits: 2 })}`,
-                        "Balance",
-                      ]}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="balance"
-                      name="Balance"
-                      stroke="#3b82f6"
-                      strokeWidth={2.5}
-                      fill="url(#balanceGradient)"
-                      dot={{ r: 4, fill: "#3b82f6", strokeWidth: 2, stroke: "#fff" }}
-                      activeDot={{ r: 6 }}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
+                <div className="[&_.recharts-layer]:outline-none [&_.recharts-dot]:stroke-transparent [&_.recharts-cartesian-grid_line]:stroke-border/50 [&_.recharts-surface]:outline-none [&_.recharts-wrapper]:outline-none">
+                  <ResponsiveContainer width="100%" height={280}>
+                    <AreaChart data={monthlyData}>
+                      <defs>
+                        <linearGradient
+                          id="balanceGradient"
+                          x1="0"
+                          y1="0"
+                          x2="0"
+                          y2="1"
+                        >
+                          <stop
+                            offset="5%"
+                            stopColor="#3b82f6"
+                            stopOpacity={0.3}
+                          />
+                          <stop
+                            offset="95%"
+                            stopColor="#3b82f6"
+                            stopOpacity={0}
+                          />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        className="stroke-border"
+                      />
+                      <XAxis
+                        dataKey="month"
+                        tick={{ fontSize: 12 }}
+                        className="fill-muted-foreground"
+                      />
+                      <YAxis
+                        tick={{ fontSize: 12 }}
+                        className="fill-muted-foreground"
+                        tickFormatter={(v) => `$${v}`}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="balance"
+                        name="Balance"
+                        stroke="#3b82f6"
+                        strokeWidth={2.5}
+                        fill="url(#balanceGradient)"
+                        dot={{
+                          r: 4,
+                          fill: "#3b82f6",
+                          strokeWidth: 0,
+                          stroke: "transparent",
+                        }}
+                        activeDot={{ r: 6 }}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -1059,8 +1145,12 @@ function BudgetContent({ token }: { token: string }) {
               <Hash className="size-3.5 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <p className="text-xl font-bold">{detailedStats.totalTransactions}</p>
-              <p className="mt-1 text-xs text-muted-foreground">all time total</p>
+              <p className="text-xl font-bold">
+                {detailedStats.totalTransactions}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                all time total
+              </p>
             </CardContent>
           </Card>
           <Card>
@@ -1072,7 +1162,10 @@ function BudgetContent({ token }: { token: string }) {
             </CardHeader>
             <CardContent>
               <p className="text-xl font-bold text-rose-600 dark:text-rose-400">
-                ${detailedStats.thisMonthExpenses.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                $
+                {detailedStats.thisMonthExpenses.toLocaleString("en-US", {
+                  minimumFractionDigits: 2,
+                })}
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
                 {format(new Date(), "MMMM yyyy")}
@@ -1088,7 +1181,10 @@ function BudgetContent({ token }: { token: string }) {
             </CardHeader>
             <CardContent>
               <p className="text-xl font-bold text-emerald-600 dark:text-emerald-400">
-                ${detailedStats.thisMonthIncome.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                $
+                {detailedStats.thisMonthIncome.toLocaleString("en-US", {
+                  minimumFractionDigits: 2,
+                })}
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
                 {format(new Date(), "MMMM yyyy")}
@@ -1104,9 +1200,14 @@ function BudgetContent({ token }: { token: string }) {
             </CardHeader>
             <CardContent>
               <p className="text-xl font-bold">
-                ${detailedStats.avgExpense.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                $
+                {detailedStats.avgExpense.toLocaleString("en-US", {
+                  minimumFractionDigits: 2,
+                })}
               </p>
-              <p className="mt-1 text-xs text-muted-foreground">per transaction</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                per transaction
+              </p>
             </CardContent>
           </Card>
           <Card>
@@ -1120,7 +1221,11 @@ function BudgetContent({ token }: { token: string }) {
               {detailedStats.largestExpense ? (
                 <>
                   <p className="text-xl font-bold text-rose-600 dark:text-rose-400">
-                    ${detailedStats.largestExpense.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                    $
+                    {detailedStats.largestExpense.amount.toLocaleString(
+                      "en-US",
+                      { minimumFractionDigits: 2 },
+                    )}
                   </p>
                   <p className="mt-1 truncate text-xs text-muted-foreground">
                     {detailedStats.largestExpense.title}
@@ -1145,7 +1250,11 @@ function BudgetContent({ token }: { token: string }) {
                     {detailedStats.topCategory.name}
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    ${detailedStats.topCategory.total.toLocaleString("en-US", { minimumFractionDigits: 2 })} spent
+                    $
+                    {detailedStats.topCategory.total.toLocaleString("en-US", {
+                      minimumFractionDigits: 2,
+                    })}{" "}
+                    spent
                   </p>
                 </>
               ) : (
@@ -1167,7 +1276,11 @@ function BudgetContent({ token }: { token: string }) {
                     {detailedStats.topProject.name}
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    ${detailedStats.topProject.total.toLocaleString("en-US", { minimumFractionDigits: 2 })} spent
+                    $
+                    {detailedStats.topProject.total.toLocaleString("en-US", {
+                      minimumFractionDigits: 2,
+                    })}{" "}
+                    spent
                   </p>
                 </>
               ) : (
@@ -1193,7 +1306,9 @@ function BudgetContent({ token }: { token: string }) {
               >
                 {detailedStats.savingsRate.toFixed(1)}%
               </p>
-              <p className="mt-1 text-xs text-muted-foreground">of income saved</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                of income saved
+              </p>
             </CardContent>
           </Card>
         </div>
@@ -1221,7 +1336,9 @@ function BudgetContent({ token }: { token: string }) {
                 id="tx-title"
                 placeholder="e.g. Office supplies"
                 value={form.title}
-                onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, title: e.target.value }))
+                }
               />
             </div>
 
@@ -1235,7 +1352,9 @@ function BudgetContent({ token }: { token: string }) {
                 min="0"
                 placeholder="0.00"
                 value={form.amount}
-                onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, amount: e.target.value }))
+                }
               />
             </div>
 
@@ -1278,7 +1397,10 @@ function BudgetContent({ token }: { token: string }) {
               <Select
                 value={form.projectId || "__none__"}
                 onValueChange={(v) =>
-                  setForm((f) => ({ ...f, projectId: v === "__none__" ? "" : v }))
+                  setForm((f) => ({
+                    ...f,
+                    projectId: v === "__none__" ? "" : v,
+                  }))
                 }
               >
                 <SelectTrigger>
@@ -1337,7 +1459,10 @@ function BudgetContent({ token }: { token: string }) {
                     placeholder="e.g. Marketing"
                     value={form.newCategoryName}
                     onChange={(e) =>
-                      setForm((f) => ({ ...f, newCategoryName: e.target.value }))
+                      setForm((f) => ({
+                        ...f,
+                        newCategoryName: e.target.value,
+                      }))
                     }
                   />
                 </div>

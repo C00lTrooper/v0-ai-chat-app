@@ -20,6 +20,8 @@ interface CalendarMonthGridProps {
   eventsByDate: Map<string, CalendarEvent[]>;
   onSelectDate: (date: Date) => void;
   onEventClick: (event: CalendarEvent) => void;
+  /** Called when "+N more" is clicked; use to show all tasks for that day in a modal. */
+  onDayMoreClick?: (date: Date) => void;
 }
 
 export function CalendarMonthGrid({
@@ -28,6 +30,7 @@ export function CalendarMonthGrid({
   eventsByDate,
   onSelectDate,
   onEventClick,
+  onDayMoreClick,
 }: CalendarMonthGridProps) {
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
@@ -143,7 +146,11 @@ export function CalendarMonthGrid({
                             className="mt-px px-1 text-left text-[10px] font-medium text-muted-foreground hover:text-foreground"
                             onClick={(e) => {
                               e.stopPropagation();
-                              onSelectDate(day);
+                              if (onDayMoreClick) {
+                                onDayMoreClick(day);
+                              } else {
+                                onSelectDate(day);
+                              }
                             }}
                           >
                             +{dayEvents.length - MAX_VISIBLE_EVENTS} more

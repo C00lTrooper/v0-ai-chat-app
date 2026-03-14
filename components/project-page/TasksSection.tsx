@@ -123,7 +123,7 @@ export function TasksSection({ project, onTaskCompleted }: TasksSectionProps) {
           return (
             <div
               key={phaseIndex}
-              className="rounded-xl border border-border bg-card p-5"
+              className="rounded-xl border border-border bg-card p-4 sm:p-5"
             >
               <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
                 <Layers className="size-4" />
@@ -134,7 +134,137 @@ export function TasksSection({ project, onTaskCompleted }: TasksSectionProps) {
                   {phase.description}
                 </p>
               ) : null}
-              <div className="mt-3">
+              {/* Mobile: stacked task cards */}
+              <div className="mt-3 space-y-2 md:hidden">
+                {tasks.map((task) => {
+                  const isCompleted = Boolean(
+                    (task as { completed?: boolean }).completed,
+                  );
+                  const key = `${phase.order}:${task.order}`;
+                  const subtasksForTask = subtasksByKey.get(key) ?? [];
+                  const hasSubtasks = subtasksForTask.length > 0;
+
+                  return (
+                    <div
+                      key={key}
+                      role="button"
+                      tabIndex={0}
+                      className="w-full rounded-lg border border-border/70 bg-muted/30 p-3 text-left text-sm transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      onClick={() =>
+                        handleRequestToggle({
+                          phaseOrder: phase.order,
+                          taskOrder: task.order,
+                          taskName: task.name,
+                          completed: isCompleted,
+                        })
+                      }
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          handleRequestToggle({
+                            phaseOrder: phase.order,
+                            taskOrder: task.order,
+                            taskName: task.name,
+                            completed: isCompleted,
+                          });
+                        }
+                      }}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          {isCompleted ? (
+                            <CheckCircle2 className="size-4 text-emerald-500" />
+                          ) : (
+                            <Circle className="size-4 text-muted-foreground" />
+                          )}
+                          <div>
+                            <p className="text-sm font-medium">{task.name}</p>
+                            <p className="mt-0.5 text-[11px] text-muted-foreground">
+                              #{task.order + 1} · {task.date} ·{" "}
+                              {(task as { endTime?: string }).endTime
+                                ? `${task.time} – ${
+                                    (task as { endTime?: string }).endTime
+                                  }`
+                                : task.time}
+                            </p>
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const date = new Date(task.date + "T00:00:00");
+                            const taskWithEnd = task as {
+                              endTime?: string;
+                              description?: string;
+                            };
+                            const eventForDialog: CalendarEvent = {
+                              id: `${project._id}-${phase.order}-${task.order}`,
+                              projectId: project._id,
+                              projectName:
+                                project.projectName || project.summaryName,
+                              phaseName: phase.name,
+                              taskName: task.name,
+                              taskDescription: taskWithEnd.description,
+                              date,
+                              timeStr: task.time,
+                              ...(taskWithEnd.endTime
+                                ? { endTimeStr: taskWithEnd.endTime }
+                                : {}),
+                              colorIndex: 0,
+                              completed: isCompleted,
+                              phaseOrder: phase.order,
+                              taskOrder: task.order,
+                            };
+                            setDetailEvent(eventForDialog);
+                            setDetailOpen(true);
+                          }}
+                        >
+                          <MoreVertical className="size-4" />
+                          <span className="sr-only">
+                            View details and subtasks
+                          </span>
+                        </Button>
+                      </div>
+                      {hasSubtasks && (
+                        <div className="mt-2 space-y-1 border-t border-border/40 pt-2">
+                          {subtasksForTask.slice(0, 3).map((subtask) => (
+                            <div
+                              key={subtask._id}
+                              className="flex items-center gap-2 text-[11px] text-muted-foreground"
+                            >
+                              {subtask.completed ? (
+                                <CheckCircle2 className="size-3 text-emerald-500" />
+                              ) : (
+                                <Circle className="size-3" />
+                              )}
+                              <span
+                                className={cn(
+                                  subtask.completed &&
+                                    "line-through text-muted-foreground/70",
+                                )}
+                              >
+                                {subtask.title}
+                              </span>
+                            </div>
+                          ))}
+                          {subtasksForTask.length > 3 && (
+                            <p className="text-[11px] text-muted-foreground">
+                              +{subtasksForTask.length - 3} more subtasks
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Desktop: table layout */}
+              <div className="mt-3 hidden md:block">
                 <Table className="text-sm">
                   <TableHeader>
                     <TableRow>
@@ -185,7 +315,9 @@ export function TasksSection({ project, onTaskCompleted }: TasksSectionProps) {
                             </TableCell>
                             <TableCell className="text-muted-foreground">
                               {(task as { endTime?: string }).endTime
-                                ? `${task.time} – ${(task as { endTime?: string }).endTime}`
+                                ? `${task.time} – ${
+                                    (task as { endTime?: string }).endTime
+                                  }`
                                 : task.time}
                             </TableCell>
                             <TableCell className="text-right">
@@ -197,7 +329,10 @@ export function TasksSection({ project, onTaskCompleted }: TasksSectionProps) {
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   const date = new Date(task.date + "T00:00:00");
-                                  const taskWithEnd = task as { endTime?: string; description?: string };
+                                  const taskWithEnd = task as {
+                                    endTime?: string;
+                                    description?: string;
+                                  };
                                   const eventForDialog: CalendarEvent = {
                                     id: `${project._id}-${phase.order}-${task.order}`,
                                     projectId: project._id,

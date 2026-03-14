@@ -130,3 +130,37 @@ a,
 [href] {
   cursor: pointer;
 }
+
+/* Slim, stylistic scrollbars – theme-aware, minimal, non-intrusive */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 4px 0;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 9999px;
+  transition: background 0.15s ease;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-foreground);
+}
+
+*::-webkit-scrollbar-thumb:active {
+  background: var(--foreground);
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}

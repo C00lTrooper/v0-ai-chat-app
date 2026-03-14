@@ -7,12 +7,14 @@ import { CalendarMonthGrid } from "@/components/calendar/calendar-month-grid";
 import { CalendarWeekGrid } from "@/components/calendar/calendar-week-grid";
 import { CalendarDayView } from "@/components/calendar/calendar-day-view";
 import { TaskDetailDialog } from "@/components/calendar/task-detail-dialog";
+import { DayTasksDialog } from "@/components/calendar/day-tasks-dialog";
 import { useCalendarData } from "@/hooks/use-calendar-data";
 import { Spinner } from "@/components/ui/spinner";
 import {
   type CalendarViewMode,
   type CalendarEvent,
   groupEventsByDate,
+  dateKey,
 } from "@/lib/calendar-utils";
 
 export function CalendarView() {
@@ -26,6 +28,10 @@ export function CalendarView() {
     null,
   );
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [dayTasksModalDate, setDayTasksModalDate] = useState<Date | null>(
+    null,
+  );
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const { projects, events, loading } = useCalendarData();
 
@@ -69,6 +75,7 @@ export function CalendarView() {
     (date: Date) => {
       setSelectedDate(date);
       setCurrentDate(date);
+      setViewMode("day");
     },
     [],
   );
@@ -87,6 +94,10 @@ export function CalendarView() {
     setDialogOpen(true);
   }, []);
 
+  const handleDayMoreClick = useCallback((date: Date) => {
+    setDayTasksModalDate(date);
+  }, []);
+
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -96,7 +107,7 @@ export function CalendarView() {
   }
 
   return (
-    <div className="flex h-full flex-col md:flex-row">
+    <div className="flex min-h-0 flex-1 flex-col md:flex-row">
       <CalendarSidebar
         currentDate={currentDate}
         selectedDate={selectedDate}
@@ -104,9 +115,11 @@ export function CalendarView() {
         projects={projects}
         visibleProjectIds={visibleProjectIds}
         onToggleProject={toggleProject}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
       />
 
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         <CalendarToolbar
           viewMode={viewMode}
           onViewModeChange={setViewMode}
@@ -122,6 +135,7 @@ export function CalendarView() {
             eventsByDate={eventsByDate}
             onSelectDate={handleSelectDate}
             onEventClick={handleEventClick}
+            onDayMoreClick={handleDayMoreClick}
           />
         )}
 
@@ -148,6 +162,18 @@ export function CalendarView() {
         event={selectedEvent}
         open={dialogOpen}
         onOpenChange={setDialogOpen}
+      />
+
+      <DayTasksDialog
+        date={dayTasksModalDate}
+        events={
+          dayTasksModalDate
+            ? eventsByDate.get(dateKey(dayTasksModalDate)) ?? []
+            : []
+        }
+        open={dayTasksModalDate !== null}
+        onOpenChange={(open) => !open && setDayTasksModalDate(null)}
+        onEventClick={handleEventClick}
       />
     </div>
   );

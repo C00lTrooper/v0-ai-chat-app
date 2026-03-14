@@ -4,6 +4,7 @@ import { Analytics } from "@vercel/analytics/next";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider } from "@/components/auth-provider";
 import { ConvexClientProvider } from "@/components/convex-client-provider";
+import { LastVisitedProjectProvider } from "@/components/last-visited-project-provider";
 import { Toaster } from "@/components/ui/toaster";
 import "./globals.css";
 
@@ -44,9 +45,11 @@ export default function RootLayout({
         <ConvexClientProvider>
           <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
             <AuthProvider>
-              {children}
-              <Toaster />
-              <Analytics />
+              <LastVisitedProjectProvider>
+                {children}
+                <Toaster />
+                <Analytics />
+              </LastVisitedProjectProvider>
             </AuthProvider>
           </ThemeProvider>
         </ConvexClientProvider>

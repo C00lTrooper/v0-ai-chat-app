@@ -31,6 +31,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAuth } from "@/components/auth-provider";
+import { useLastVisitedProject } from "@/components/last-visited-project-provider";
 
 interface ChatHeaderProps {
   hasMessages: boolean;
@@ -49,6 +50,11 @@ export function ChatHeader({
   const router = useRouter();
   const pathname = usePathname();
   const { logout, userEmail } = useAuth();
+  const lastVisited = useLastVisitedProject();
+
+  const displayProjectId = projectId ?? lastVisited?.projectId ?? undefined;
+  const displayProjectName =
+    projectName ?? lastVisited?.projectName ?? undefined;
 
   const toggleTheme = () => {
     setTheme(resolvedTheme === "dark" ? "light" : "dark");
@@ -66,22 +72,22 @@ export function ChatHeader({
           <Home className="size-5" />
           <span className="sr-only">Projects</span>
         </Button>
-        {projectName && (
+        {displayProjectName && (
           <>
             <span className="shrink-0 text-muted-foreground/70" aria-hidden>
               \
             </span>
-            {projectId ? (
+            {displayProjectId ? (
               <button
                 type="button"
-                onClick={() => router.push(`/projects/${projectId}`)}
+                onClick={() => router.push(`/projects/${displayProjectId}`)}
                 className="truncate text-sm font-medium text-foreground hover:underline"
               >
-                {projectName}
+                {displayProjectName}
               </button>
             ) : (
               <span className="truncate text-sm font-medium text-foreground">
-                {projectName}
+                {displayProjectName}
               </span>
             )}
           </>
@@ -103,7 +109,9 @@ export function ChatHeader({
         <nav className="flex items-center gap-1" aria-label="App navigation">
           <Select
             value={
-              pathname === "/chat" || pathname === "/calendar" || pathname === "/budget"
+              pathname === "/chat" ||
+              pathname === "/calendar" ||
+              pathname === "/budget"
                 ? pathname
                 : "/chat"
             }

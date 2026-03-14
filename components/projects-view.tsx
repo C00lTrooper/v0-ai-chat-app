@@ -2,7 +2,12 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { FolderOpen, Calendar, ExternalLink, MessageSquare } from "lucide-react";
+import {
+  FolderOpen,
+  Calendar,
+  ExternalLink,
+  MessageSquare,
+} from "lucide-react";
 import {
   Card,
   CardContent,
@@ -133,9 +138,7 @@ export function ProjectsView({ onOpenChat }: ProjectsViewProps) {
                       variant="ghost"
                       size="sm"
                       className="gap-1.5"
-                      onClick={() =>
-                        onOpenChat(p._id as Id<"projects">)
-                      }
+                      onClick={() => onOpenChat(p._id as Id<"projects">)}
                     >
                       <MessageSquare className="size-3.5" />
                       Chat

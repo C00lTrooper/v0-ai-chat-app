@@ -40,7 +40,7 @@ export function ProjectScope({ project }: ProjectScopeProps) {
       <Card>
         <CardHeader>
           <CardTitle className="text-base font-medium">
-            High-level features
+            Project Phases
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -49,7 +49,7 @@ export function ProjectScope({ project }: ProjectScopeProps) {
               {features.map((feature) => (
                 <TableRow key={feature.id}>
                   <TableCell className="w-32 font-medium text-muted-foreground">
-                    Feature {feature.id}
+                    Phase {feature.id}
                   </TableCell>
                   <TableCell className="font-medium">
                     {feature.name}

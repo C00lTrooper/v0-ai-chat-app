@@ -60,18 +60,14 @@ export function TaskDetailDialog({
 
   const ensureTask = useMutation(api.tasks.ensureTaskForProjectWbsTask);
   const createSubtasks = useMutation(api.tasks.createSubtasks);
-  const toggleSubtaskCompleted = useMutation(
-    api.tasks.toggleSubtaskCompleted,
-  );
+  const toggleSubtaskCompleted = useMutation(api.tasks.toggleSubtaskCompleted);
   const deleteSubtaskMut = useMutation(api.tasks.deleteSubtask);
   const updateTaskTime = useMutation(api.aiTools.updateTaskTime);
   const updateTaskStatus = useMutation(api.aiTools.updateTaskStatus);
 
   const subtasks = useQuery(
     api.tasks.listSubtasks,
-    sessionToken && taskId
-      ? { token: sessionToken, taskId }
-      : "skip",
+    sessionToken && taskId ? { token: sessionToken, taskId } : "skip",
   );
 
   useEffect(() => {
@@ -115,8 +111,7 @@ export function TaskDetailDialog({
   }, [event]);
 
   const color = useMemo(
-    () =>
-      event ? PROJECT_COLORS[event.colorIndex] : PROJECT_COLORS[0],
+    () => (event ? PROJECT_COLORS[event.colorIndex] : PROJECT_COLORS[0]),
     [event],
   );
 
@@ -402,7 +397,7 @@ export function TaskDetailDialog({
                       "h-8 w-24 text-xs",
                       taskStartTime.trim() &&
                         !normalizeTimeString(taskStartTime.trim()) &&
-                      "border-destructive focus-visible:ring-destructive",
+                        "border-destructive focus-visible:ring-destructive",
                     )}
                     aria-invalid={
                       !!taskStartTime.trim() &&
@@ -421,7 +416,7 @@ export function TaskDetailDialog({
                       "h-8 w-24 text-xs",
                       taskEndTime.trim() &&
                         !normalizeTimeString(taskEndTime.trim()) &&
-                      "border-destructive focus-visible:ring-destructive",
+                        "border-destructive focus-visible:ring-destructive",
                     )}
                     aria-invalid={
                       !!taskEndTime.trim() &&
@@ -435,9 +430,7 @@ export function TaskDetailDialog({
                   className="h-8 px-2 text-[11px]"
                   onClick={handleUpdateTime}
                   disabled={
-                    isUpdatingTime ||
-                    !taskStartTime.trim() ||
-                    !sessionToken
+                    isUpdatingTime || !taskStartTime.trim() || !sessionToken
                   }
                 >
                   Save
@@ -550,7 +543,9 @@ export function TaskDetailDialog({
                     className="h-8 px-2 text-[11px]"
                     onClick={handleAddSubtask}
                     disabled={
-                      !newSubtaskTitle.trim() || isAddingSubtask || !sessionToken
+                      !newSubtaskTitle.trim() ||
+                      isAddingSubtask ||
+                      !sessionToken
                     }
                   >
                     Add
@@ -622,7 +617,9 @@ export function TaskDetailDialog({
               size="sm"
               onClick={handleSaveSubtasks}
               disabled={
-                draftSubtasks.every((t) => !t.trim()) || !sessionToken || !taskId
+                draftSubtasks.every((t) => !t.trim()) ||
+                !sessionToken ||
+                !taskId
               }
             >
               Save subtasks
