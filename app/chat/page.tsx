@@ -240,6 +240,13 @@ export default function ChatPage() {
     setActiveChatId(null);
     setProjectToLinkId(null);
     window.localStorage.removeItem("lastOpenedChatId");
+    try {
+      if (typeof window !== "undefined") {
+        window.sessionStorage.removeItem("unassignedChatMessages");
+      }
+    } catch {
+      // ignore storage errors
+    }
     if (searchParams.get("chatId")) {
       router.replace("/chat", { scroll: false });
     }

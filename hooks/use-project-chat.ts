@@ -68,6 +68,8 @@ export function useProjectChat({
 }) {
   const { sessionToken } = useAuth()
 
+  const UNASSIGNED_CHAT_STORAGE_KEY = "unassignedChatMessages"
+
   const chatData = useQuery(
     api.chats.getChatWithMessages,
     activeChatId && sessionToken
@@ -96,7 +98,41 @@ export function useProjectChat({
   activeChatIdRef.current = activeChatId
 
   useEffect(() => {
-    setLocalMessages([])
+    if (!activeChatId && typeof window !== "undefined") {
+      try {
+        const stored = window.sessionStorage.getItem(UNASSIGNED_CHAT_STORAGE_KEY)
+        if (stored) {
+          const parsed = JSON.parse(stored) as Message[]
+          if (Array.isArray(parsed)) {
+            setLocalMessages(parsed)
+          }
+        }
+      } catch {
+        // ignore malformed storage
+      }
+    } else {
+      setLocalMessages([])
+    }
+  }, [activeChatId])
+
+  useEffect(() => {
+    if (!activeChatId && typeof window !== "undefined") {
+      try {
+        if (localMessages.length === 0) {
+          window.sessionStorage.removeItem(UNASSIGNED_CHAT_STORAGE_KEY)
+        } else {
+          window.sessionStorage.setItem(
+            UNASSIGNED_CHAT_STORAGE_KEY,
+            JSON.stringify(localMessages),
+          )
+        }
+      } catch {
+        // storage failures are non-fatal
+      }
+    }
+  }, [activeChatId, localMessages])
+
+  useEffect(() => {
     setStreamingMessage(null)
     setPendingToolCalls(null)
     setError(null)
