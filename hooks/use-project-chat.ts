@@ -502,6 +502,23 @@ export function useProjectChat({
     [],
   )
 
+  const resetUnassignedChat = useCallback(() => {
+    setLocalMessages([])
+    setStreamingMessage(null)
+    setPendingToolCalls(null)
+    setError(null)
+    setIsLoading(false)
+    abortRef.current?.abort()
+    abortRef.current = null
+    if (typeof window !== "undefined") {
+      try {
+        window.sessionStorage.removeItem(UNASSIGNED_CHAT_STORAGE_KEY)
+      } catch {
+        // ignore storage errors
+      }
+    }
+  }, [])
+
   const sendMessage = useCallback(
     async (content: string) => {
       if (!sessionToken) return
@@ -925,5 +942,6 @@ export function useProjectChat({
     stopGeneration,
     confirmToolCall,
     rejectToolCall,
+    resetUnassignedChat,
   }
 }

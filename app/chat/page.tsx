@@ -163,6 +163,7 @@ export default function ChatPage() {
     stopGeneration,
     confirmToolCall,
     rejectToolCall,
+    resetUnassignedChat,
   } = useProjectChat({
     activeChatId,
     projectToLink: projectToLinkId,
@@ -237,20 +238,14 @@ export default function ChatPage() {
   };
 
   const handleNewChat = useCallback(() => {
+    resetUnassignedChat();
     setActiveChatId(null);
     setProjectToLinkId(null);
     window.localStorage.removeItem("lastOpenedChatId");
-    try {
-      if (typeof window !== "undefined") {
-        window.sessionStorage.removeItem("unassignedChatMessages");
-      }
-    } catch {
-      // ignore storage errors
-    }
     if (searchParams.get("chatId")) {
       router.replace("/chat", { scroll: false });
     }
-  }, [searchParams, router]);
+  }, [resetUnassignedChat, searchParams, router]);
 
   if (!isAuthenticated) {
     return null;
