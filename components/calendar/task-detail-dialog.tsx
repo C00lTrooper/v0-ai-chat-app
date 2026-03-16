@@ -33,6 +33,7 @@ import {
   PROJECT_COLORS,
   normalizeTimeString,
   parseTimeToHour,
+  dateKey,
 } from "@/lib/calendar-utils";
 
 interface TaskDetailDialogProps {
@@ -57,6 +58,10 @@ export function TaskDetailDialog({
   const [taskEndTime, setTaskEndTime] = useState(event?.endTimeStr ?? "");
   const [isUpdatingTime, setIsUpdatingTime] = useState(false);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [taskDate, setTaskDate] = useState(
+    event ? dateKey(event.date) : dateKey(new Date()),
+  );
+  const [isUpdatingDate, setIsUpdatingDate] = useState(false);
 
   const ensureTask = useMutation(api.tasks.ensureTaskForProjectWbsTask);
   const createSubtasks = useMutation(api.tasks.createSubtasks);
@@ -64,6 +69,7 @@ export function TaskDetailDialog({
   const deleteSubtaskMut = useMutation(api.tasks.deleteSubtask);
   const updateTaskTime = useMutation(api.aiTools.updateTaskTime);
   const updateTaskStatus = useMutation(api.aiTools.updateTaskStatus);
+  const updateTaskDueDate = useMutation(api.aiTools.updateTaskDueDate);
 
   const subtasks = useQuery(
     api.tasks.listSubtasks,
@@ -108,6 +114,9 @@ export function TaskDetailDialog({
   useEffect(() => {
     setTaskStartTime(event?.timeStr ?? "");
     setTaskEndTime(event?.endTimeStr ?? "");
+    if (event) {
+      setTaskDate(dateKey(event.date));
+    }
   }, [event]);
 
   const color = useMemo(
@@ -216,6 +225,36 @@ export function TaskDetailDialog({
       });
     } finally {
       setIsUpdatingTime(false);
+    }
+  };
+
+  const handleUpdateDate = async (newDate: string) => {
+    if (!sessionToken || !event || isUpdatingDate) return;
+    if (!newDate) {
+      toast({
+        variant: "destructive",
+        title: "Select a valid date.",
+      });
+      return;
+    }
+    setIsUpdatingDate(true);
+    try {
+      await updateTaskDueDate({
+        token: sessionToken,
+        projectId: event.projectId as Id<"projects">,
+        phaseOrder: event.phaseOrder,
+        taskOrder: event.taskOrder,
+        newDate,
+      });
+      setTaskDate(newDate);
+      toast({ title: "Task date updated." });
+    } catch {
+      toast({
+        variant: "destructive",
+        title: "Failed to update task date.",
+      });
+    } finally {
+      setIsUpdatingDate(false);
     }
   };
 
@@ -374,14 +413,20 @@ export function TaskDetailDialog({
             )}
             <div className="flex items-center gap-3 text-sm">
               <Calendar className="size-4 text-muted-foreground" />
-              <span>
-                {event.date.toLocaleDateString("en-US", {
-                  weekday: "long",
-                  month: "long",
-                  day: "numeric",
-                  year: "numeric",
-                })}
-              </span>
+              <Input
+                type="date"
+                value={taskDate}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setTaskDate(value);
+                  if (value) {
+                    void handleUpdateDate(value);
+                  }
+                }}
+                className="h-8 w-44 text-xs"
+                disabled={!sessionToken || isUpdatingDate}
+                aria-label="Task date"
+              />
             </div>
             <div className="flex items-center gap-3 text-sm">
               <Clock className="size-4 shrink-0 text-muted-foreground" />
