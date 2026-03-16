@@ -112,6 +112,9 @@ export const getChatWithMessages = query({
     const user = await authenticateUser(ctx, args.token);
     const chat = await ctx.db.get(args.chatId);
     if (!chat) return null;
+    if (!chat.projectId) {
+      throw new Error("Chat is missing projectId");
+    }
     await assertProjectAccess(ctx, user, chat.projectId);
 
     const messages = await ctx.db
@@ -184,6 +187,9 @@ export const sendMessage = mutation({
     const user = await authenticateUser(ctx, args.token);
     const chat = await ctx.db.get(args.chatId);
     if (!chat) throw new Error("Chat not found");
+    if (!chat.projectId) {
+      throw new Error("Chat is missing projectId");
+    }
     await assertProjectAccess(ctx, user, chat.projectId);
 
     const messageId = await ctx.db.insert("chatMessages", {
@@ -208,6 +214,9 @@ export const renameChat = mutation({
     const user = await authenticateUser(ctx, args.token);
     const chat = await ctx.db.get(args.chatId);
     if (!chat) throw new Error("Chat not found");
+    if (!chat.projectId) {
+      throw new Error("Chat is missing projectId");
+    }
     await assertProjectAccess(ctx, user, chat.projectId);
 
     await ctx.db.patch(args.chatId, { name: args.name.trim() || undefined });
@@ -224,6 +233,9 @@ export const deleteChat = mutation({
     const user = await authenticateUser(ctx, args.token);
     const chat = await ctx.db.get(args.chatId);
     if (!chat) throw new Error("Chat not found");
+    if (!chat.projectId) {
+      throw new Error("Chat is missing projectId");
+    }
     await assertProjectAccess(ctx, user, chat.projectId);
 
     const messages = await ctx.db
