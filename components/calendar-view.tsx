@@ -267,6 +267,7 @@ export function CalendarView() {
             currentDate={currentDate}
             eventsByDate={eventsByDate}
             onEventClick={handleEventClick}
+            onEventDragEnd={handleEventDragEnd}
           />
         )}
       </div>

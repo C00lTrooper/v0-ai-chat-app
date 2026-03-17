@@ -12,16 +12,17 @@ import {
   formatHour,
   parseTimeToHour,
   eventDurationHours,
-  normalizeTimeString,
 } from "@/lib/calendar-utils";
-import { useEffect, useRef, useState } from "react";
+import { useRef } from "react";
+import {
+  useEventDragResize,
+  RESIZE_HANDLE_PX,
+} from "@/components/calendar/use-event-drag-resize";
 
 const START_HOUR = 6;
 const END_HOUR = 22;
 const HOURS = Array.from({ length: END_HOUR - START_HOUR }, (_, i) => START_HOUR + i);
 const HOUR_HEIGHT = 60;
-const DRAG_THRESHOLD_PX = 5;
-const RESIZE_HANDLE_PX = 8;
 
 interface CalendarWeekGridProps {
   currentDate: Date;
@@ -48,137 +49,22 @@ export function CalendarWeekGrid({
   const days = getWeekViewDays(currentDate);
 
   const gridRef = useRef<HTMLDivElement | null>(null);
-  const [dragState, setDragState] = useState<{
-    event: CalendarEvent;
-    dayIndex: number;
-    startClientX: number;
-    startClientY: number;
-    mode: "move" | "resize-top" | "resize-bottom";
-    startHour: number;
-    durationHours: number;
-    deltaX: number;
-    deltaY: number;
-    hasExceededThreshold: boolean;
-  } | null>(null);
-
-  useEffect(() => {
-    if (!dragState) return;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      setDragState((prev) =>
-        prev
-          ? {
-              ...prev,
-              deltaX: e.clientX - prev.startClientX,
-              deltaY: e.clientY - prev.startClientY,
-              hasExceededThreshold:
-                prev.hasExceededThreshold ||
-                Math.hypot(
-                  e.clientX - prev.startClientX,
-                  e.clientY - prev.startClientY,
-                ) > DRAG_THRESHOLD_PX,
-            }
-          : null,
-      );
-    };
-
-    const handleMouseUp = () => {
-      if (!dragState) {
-        return;
-      }
-
-      // If we never exceeded the drag threshold, treat as a simple click.
-      if (!dragState.hasExceededThreshold) {
-        setDragState(null);
-        onEventClick(dragState.event);
-        return;
-      }
-
-      if (!onEventDragEnd) {
-        setDragState(null);
-        return;
-      }
-
-      const totalHours = END_HOUR - START_HOUR;
-
-      // Snap vertical movement to 15-minute increments in hours.
-      const deltaHoursRaw = dragState.deltaY / HOUR_HEIGHT;
-      const snappedDeltaHours = Math.round(deltaHoursRaw * 4) / 4;
-
-      let newStartHour = dragState.startHour;
-      let newDuration = dragState.durationHours;
-
-      if (dragState.mode === "move") {
-        newStartHour = dragState.startHour + snappedDeltaHours;
-        newStartHour = Math.max(
-          START_HOUR,
-          Math.min(END_HOUR - dragState.durationHours, newStartHour),
-        );
-        newDuration = dragState.durationHours;
-      } else if (dragState.mode === "resize-bottom") {
-        newDuration = dragState.durationHours + snappedDeltaHours;
-        newDuration = Math.max(
-          0.25,
-          Math.min(END_HOUR - dragState.startHour, newDuration),
-        );
-        newStartHour = dragState.startHour;
-      } else if (dragState.mode === "resize-top") {
-        const endHourFixed = dragState.startHour + dragState.durationHours;
-        newStartHour = dragState.startHour + snappedDeltaHours;
-        newStartHour = Math.max(
-          START_HOUR,
-          Math.min(endHourFixed - 0.25, newStartHour),
-        );
-        newDuration = endHourFixed - newStartHour;
-      }
-
-      // Snap resulting start hour to 15-minute increments and clamp.
-      const relStart = newStartHour - START_HOUR;
-      let relClamped = Math.max(0, Math.min(totalHours - newDuration, relStart));
-      const relQuarter = Math.round(relClamped * 4) / 4;
-      const finalStartHour = START_HOUR + relQuarter;
-
-      const hour24 = Math.floor(finalStartHour); // 0–23
-      const minutes = Math.round((finalStartHour - hour24) * 60); // 0–59
-      const newStartTime = `${String(hour24).padStart(2, "0")}:${String(
-        minutes,
-      ).padStart(2, "0")}`; // "HH:MM" 24-hour
-
-      // Horizontal movement only changes the day for move drags, not resizes.
-      let newDayIndex = dragState.dayIndex;
-      if (dragState.mode === "move") {
-        const gridRect = gridRef.current?.getBoundingClientRect();
-        const colWidth = gridRect ? gridRect.width / 7 : 0;
-        if (colWidth > 0) {
-          const dayOffset = Math.round(dragState.deltaX / colWidth);
-          newDayIndex = Math.min(
-            6,
-            Math.max(0, dragState.dayIndex + dayOffset),
-          );
-        }
-      }
-
-      const weekDays = getWeekViewDays(currentDate);
-      const baseDay = weekDays[0];
-      const newDate = new Date(
-        baseDay.getFullYear(),
-        baseDay.getMonth(),
-        baseDay.getDate() + newDayIndex,
-      );
-
-      onEventDragEnd(dragState.event, newDate, newStartTime, newDuration);
-
-      setDragState(null);
-    };
-
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
-
-    return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, [dragState, onEventDragEnd, currentDate]);
+  const { dragState, beginDrag } = useEventDragResize({
+    currentDate,
+    startHour: START_HOUR,
+    endHour: END_HOUR,
+    hourHeight: HOUR_HEIGHT,
+    hoursLength: HOURS.length,
+    columnCount: 7,
+    allowHorizontalMove: true,
+    getGridRect: () => gridRef.current?.getBoundingClientRect() ?? null,
+    onClick: onEventClick,
+    onDrop: (args) => {
+      if (!onEventDragEnd) return;
+      const { event, newDate, newStartTime, durationHours } = args;
+      onEventDragEnd(event, newDate, newStartTime, durationHours);
+    },
+  });
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
@@ -235,9 +121,6 @@ export function CalendarWeekGrid({
             const key = dateKey(day);
             const dayEvents = eventsByDate.get(key) ?? [];
 
-            const isDraggingColumn =
-              dragState && dragState.dayIndex === di ? dragState : null;
-
             return (
               <div key={di} className="relative border-l border-border/50">
                 {/* Hour gridlines */}
@@ -266,58 +149,89 @@ export function CalendarWeekGrid({
                       )}`
                     : formatTime12h(evt.timeStr);
 
-                  const isDragging =
-                    dragState?.event.id === evt.id &&
-                    dragState.dayIndex === di &&
-                    dragState.hasExceededThreshold;
-
-                  let top = baseTop;
-                  let height = baseHeight;
-                  let previewDuration = durationHours;
-
-                  if (isDragging && dragState) {
-                    const snappedDeltaY =
-                      Math.round(dragState.deltaY / (HOUR_HEIGHT / 4)) *
-                      (HOUR_HEIGHT / 4);
-                    const deltaHours = snappedDeltaY / HOUR_HEIGHT;
-
-                    if (dragState.mode === "move") {
-                      top = baseTop + snappedDeltaY;
-                    } else if (dragState.mode === "resize-bottom") {
-                      const newDuration = Math.max(
-                        0.25,
-                        durationHours + deltaHours,
-                      );
-                      previewDuration = newDuration;
-                      height =
-                        Math.max(
-                          HOUR_HEIGHT / 4,
-                          newDuration * HOUR_HEIGHT,
-                        ) - 4;
-                    } else if (dragState.mode === "resize-top") {
-                      const endHourFixed =
-                        snappedStartHour + durationHours;
-                      let newStartHour = snappedStartHour + deltaHours;
-                      newStartHour = Math.max(
-                        START_HOUR,
-                        Math.min(endHourFixed - 0.25, newStartHour),
-                      );
-                      const newDuration = endHourFixed - newStartHour;
-                      previewDuration = newDuration;
-                      top = (newStartHour - START_HOUR) * HOUR_HEIGHT;
-                      height =
-                        Math.max(
-                          HOUR_HEIGHT / 4,
-                          newDuration * HOUR_HEIGHT,
-                        ) - 4;
+                  const vis = (() => {
+                    if (!dragState) {
+                      const top = baseTop;
+                      const height = baseHeight;
+                      if (top < 0 || top >= HOURS.length * HOUR_HEIGHT) {
+                        return { hidden: true as const };
+                      }
+                      return {
+                        hidden: false as const,
+                        top,
+                        height,
+                        isDragging: false,
+                        previewDuration: durationHours,
+                      };
                     }
-                  }
+                    const totalHours = END_HOUR - START_HOUR;
+                    const baseTopLocal = (snappedStartHour - START_HOUR) * HOUR_HEIGHT;
+                    const baseHeightLocal =
+                      Math.max(HOUR_HEIGHT / 2, durationHours * HOUR_HEIGHT) - 4;
+                    const isDraggingLocal =
+                      dragState.event.id === evt.id &&
+                      dragState.dayIndex === di &&
+                      dragState.hasExceededThreshold;
+                    let top = baseTopLocal;
+                    let height = baseHeightLocal;
+                    let previewDuration = durationHours;
 
-                  if (top < 0 || top >= HOURS.length * HOUR_HEIGHT) return null;
+                    if (isDraggingLocal) {
+                      const snappedDeltaY =
+                        Math.round(dragState.deltaY / (HOUR_HEIGHT / 4)) *
+                        (HOUR_HEIGHT / 4);
+                      const deltaHours = snappedDeltaY / HOUR_HEIGHT;
+
+                      if (dragState.mode === "move") {
+                        top = baseTopLocal + snappedDeltaY;
+                      } else if (dragState.mode === "resize-bottom") {
+                        const newDuration = Math.max(
+                          0.25,
+                          durationHours + deltaHours,
+                        );
+                        previewDuration = newDuration;
+                        height =
+                          Math.max(
+                            HOUR_HEIGHT / 4,
+                            newDuration * HOUR_HEIGHT,
+                          ) - 4;
+                      } else if (dragState.mode === "resize-top") {
+                        const endHourFixed =
+                          snappedStartHour + durationHours;
+                        let newStartHour = snappedStartHour + deltaHours;
+                        newStartHour = Math.max(
+                          START_HOUR,
+                          Math.min(endHourFixed - 0.25, newStartHour),
+                        );
+                        const newDuration = endHourFixed - newStartHour;
+                        previewDuration = newDuration;
+                        top = (newStartHour - START_HOUR) * HOUR_HEIGHT;
+                        height =
+                          Math.max(
+                            HOUR_HEIGHT / 4,
+                            newDuration * HOUR_HEIGHT,
+                          ) - 4;
+                      }
+                    }
+
+                    if (top < 0 || top >= HOURS.length * HOUR_HEIGHT) {
+                      return { hidden: true as const };
+                    }
+
+                    return {
+                      hidden: false as const,
+                      top,
+                      height,
+                      isDragging: isDraggingLocal,
+                      previewDuration,
+                    };
+                  })();
+
+                  if (vis.hidden) return null;
 
                   let durationLabel: string | null = null;
-                  if (isDragging && dragState && dragState.mode !== "move") {
-                    const totalMins = Math.round(previewDuration * 60);
+                  if (vis.isDragging && dragState && dragState.mode !== "move") {
+                    const totalMins = Math.round(vis.previewDuration * 60);
                     const hrs = Math.floor(totalMins / 60);
                     const mins = totalMins % 60;
                     if (hrs > 0 && mins > 0) {
@@ -334,14 +248,14 @@ export function CalendarWeekGrid({
                       key={evt.id}
                       className="absolute inset-x-0.5 z-10 flex flex-col overflow-hidden rounded px-1.5 py-0.5 text-left text-[11px] leading-tight transition-opacity hover:opacity-80"
                       style={{
-                        top,
-                        height,
+                        top: vis.top,
+                        height: vis.height,
                         backgroundColor: isCompleted
                           ? `${color.hex}10`
                           : `${color.hex}20`,
                         borderLeft: `3px solid ${color.hex}`,
                         color: color.hex,
-                        opacity: isCompleted ? 0.6 : isDragging ? 0.8 : 1,
+                        opacity: isCompleted ? 0.6 : vis.isDragging ? 0.8 : 1,
                         cursor: "default",
                       }}
                       onMouseDown={(e) => {
@@ -349,7 +263,7 @@ export function CalendarWeekGrid({
                         e.preventDefault();
                         e.stopPropagation();
                         // Default to move when not on a handle
-                        setDragState({
+                        beginDrag({
                           event: evt,
                           dayIndex: di,
                           startClientX: e.clientX,
@@ -357,9 +271,6 @@ export function CalendarWeekGrid({
                           mode: "move",
                           startHour: snappedStartHour,
                           durationHours,
-                          deltaX: 0,
-                          deltaY: 0,
-                          hasExceededThreshold: false,
                         });
                       }}
                       title={`${timeLabel} · ${evt.taskName}`}
@@ -372,7 +283,7 @@ export function CalendarWeekGrid({
                           if (!onEventDragEnd) return;
                           e.preventDefault();
                           e.stopPropagation();
-                          setDragState({
+                          beginDrag({
                             event: evt,
                             dayIndex: di,
                             startClientX: e.clientX,
@@ -380,9 +291,6 @@ export function CalendarWeekGrid({
                             mode: "resize-top",
                             startHour: snappedStartHour,
                             durationHours,
-                            deltaX: 0,
-                            deltaY: 0,
-                            hasExceededThreshold: false,
                           });
                         }}
                       />
@@ -395,7 +303,7 @@ export function CalendarWeekGrid({
                           if (!onEventDragEnd) return;
                           e.preventDefault();
                           e.stopPropagation();
-                          setDragState({
+                          beginDrag({
                             event: evt,
                             dayIndex: di,
                             startClientX: e.clientX,
@@ -403,9 +311,6 @@ export function CalendarWeekGrid({
                             mode: "resize-bottom",
                             startHour: snappedStartHour,
                             durationHours,
-                            deltaX: 0,
-                            deltaY: 0,
-                            hasExceededThreshold: false,
                           });
                         }}
                       />
