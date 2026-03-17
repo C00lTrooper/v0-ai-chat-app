@@ -273,6 +273,7 @@ export function CalendarWeekGrid({
 
                   let top = baseTop;
                   let height = baseHeight;
+                  let previewDuration = durationHours;
 
                   if (isDragging && dragState) {
                     const snappedDeltaY =
@@ -287,6 +288,7 @@ export function CalendarWeekGrid({
                         0.25,
                         durationHours + deltaHours,
                       );
+                      previewDuration = newDuration;
                       height =
                         Math.max(
                           HOUR_HEIGHT / 4,
@@ -301,6 +303,7 @@ export function CalendarWeekGrid({
                         Math.min(endHourFixed - 0.25, newStartHour),
                       );
                       const newDuration = endHourFixed - newStartHour;
+                      previewDuration = newDuration;
                       top = (newStartHour - START_HOUR) * HOUR_HEIGHT;
                       height =
                         Math.max(
@@ -311,6 +314,20 @@ export function CalendarWeekGrid({
                   }
 
                   if (top < 0 || top >= HOURS.length * HOUR_HEIGHT) return null;
+
+                  let durationLabel: string | null = null;
+                  if (isDragging && dragState && dragState.mode !== "move") {
+                    const totalMins = Math.round(previewDuration * 60);
+                    const hrs = Math.floor(totalMins / 60);
+                    const mins = totalMins % 60;
+                    if (hrs > 0 && mins > 0) {
+                      durationLabel = `${hrs}h ${mins}m`;
+                    } else if (hrs > 0) {
+                      durationLabel = `${hrs}h`;
+                    } else {
+                      durationLabel = `${mins}m`;
+                    }
+                  }
 
                   return (
                     <button
@@ -325,28 +342,19 @@ export function CalendarWeekGrid({
                         borderLeft: `3px solid ${color.hex}`,
                         color: color.hex,
                         opacity: isCompleted ? 0.6 : isDragging ? 0.8 : 1,
+                        cursor: "default",
                       }}
                       onMouseDown={(e) => {
                         if (!onEventDragEnd) return;
                         e.preventDefault();
                         e.stopPropagation();
-
-                        const rect =
-                          (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
-                        const offsetY = e.clientY - rect.top;
-                        let mode: "move" | "resize-top" | "resize-bottom" = "move";
-                        if (offsetY <= RESIZE_HANDLE_PX) {
-                          mode = "resize-top";
-                        } else if (offsetY >= rect.height - RESIZE_HANDLE_PX) {
-                          mode = "resize-bottom";
-                        }
-
+                        // Default to move when not on a handle
                         setDragState({
                           event: evt,
                           dayIndex: di,
                           startClientX: e.clientX,
                           startClientY: e.clientY,
-                          mode,
+                          mode: "move",
                           startHour: snappedStartHour,
                           durationHours,
                           deltaX: 0,
@@ -356,6 +364,58 @@ export function CalendarWeekGrid({
                       }}
                       title={`${timeLabel} · ${evt.taskName}`}
                     >
+                      {/* Top resize handle */}
+                      <div
+                        className="absolute left-0 right-0 h-2 cursor-ns-resize"
+                        style={{ top: 0 }}
+                        onMouseDown={(e) => {
+                          if (!onEventDragEnd) return;
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setDragState({
+                            event: evt,
+                            dayIndex: di,
+                            startClientX: e.clientX,
+                            startClientY: e.clientY,
+                            mode: "resize-top",
+                            startHour: snappedStartHour,
+                            durationHours,
+                            deltaX: 0,
+                            deltaY: 0,
+                            hasExceededThreshold: false,
+                          });
+                        }}
+                      />
+
+                      {/* Bottom resize handle */}
+                      <div
+                        className="absolute left-0 right-0 h-2 cursor-ns-resize"
+                        style={{ bottom: 0 }}
+                        onMouseDown={(e) => {
+                          if (!onEventDragEnd) return;
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setDragState({
+                            event: evt,
+                            dayIndex: di,
+                            startClientX: e.clientX,
+                            startClientY: e.clientY,
+                            mode: "resize-bottom",
+                            startHour: snappedStartHour,
+                            durationHours,
+                            deltaX: 0,
+                            deltaY: 0,
+                            hasExceededThreshold: false,
+                          });
+                        }}
+                      />
+
+                      {durationLabel && (
+                        <div className="pointer-events-none absolute right-1 top-1 rounded bg-background/90 px-1 py-0.5 text-[10px] shadow">
+                          {durationLabel}
+                        </div>
+                      )}
+
                       <span className="font-semibold">{timeLabel}</span>
                       <span
                         className={`truncate ${
