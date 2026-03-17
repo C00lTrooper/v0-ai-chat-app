@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  Calendar,
+  Calendar as CalendarIcon,
   Clock,
   FolderOpen,
   Layers,
@@ -35,6 +35,12 @@ import {
   parseTimeToHour,
   dateKey,
 } from "@/lib/calendar-utils";
+import { Calendar } from "@/components/ui/calendar";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 interface TaskDetailDialogProps {
   event: CalendarEvent | null;
@@ -412,21 +418,33 @@ export function TaskDetailDialog({
               </p>
             )}
             <div className="flex items-center gap-3 text-sm">
-              <Calendar className="size-4 text-muted-foreground" />
-              <Input
-                type="date"
-                value={taskDate}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  setTaskDate(value);
-                  if (value) {
-                    void handleUpdateDate(value);
-                  }
-                }}
-                className="h-8 w-44 text-xs"
-                disabled={!sessionToken || isUpdatingDate}
-                aria-label="Task date"
-              />
+              <CalendarIcon className="size-4 text-muted-foreground" />
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-8 w-44 justify-start text-left text-xs font-normal"
+                    disabled={!sessionToken || isUpdatingDate}
+                    aria-label="Task date"
+                  >
+                    {taskDate || "Select date"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={taskDate ? new Date(taskDate) : undefined}
+                    onSelect={(date) => {
+                      if (!date) return;
+                      const isoDate = date.toISOString().slice(0, 10);
+                      setTaskDate(isoDate);
+                      void handleUpdateDate(isoDate);
+                    }}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
             </div>
             <div className="flex items-center gap-3 text-sm">
               <Clock className="size-4 shrink-0 text-muted-foreground" />

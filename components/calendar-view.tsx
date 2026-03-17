@@ -11,11 +11,27 @@ import { DayTasksDialog } from "@/components/calendar/day-tasks-dialog";
 import { useCalendarData } from "@/hooks/use-calendar-data";
 import { Spinner } from "@/components/ui/spinner";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { useAuth } from "@/components/auth-provider";
+import { useMutation } from "convex/react";
+import { api } from "@/convex/_generated/api";
+import { toast } from "@/hooks/use-toast";
+import {
   type CalendarViewMode,
   type CalendarEvent,
   groupEventsByDate,
   dateKey,
+  parseTimeToHour,
+  normalizeTimeString,
 } from "@/lib/calendar-utils";
+import type { Id } from "@/convex/_generated/dataModel";
 
 export function CalendarView() {
   const [viewMode, setViewMode] = useState<CalendarViewMode>("month");
@@ -32,6 +48,18 @@ export function CalendarView() {
     null,
   );
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  const [pendingReschedule, setPendingReschedule] = useState<{
+    event: CalendarEvent;
+    newDate: Date;
+    newStartTime: string;
+    durationHours: number;
+  } | null>(null);
+  const [isRescheduling, setIsRescheduling] = useState(false);
+
+  const { sessionToken } = useAuth();
+  const updateTaskTime = useMutation(api.aiTools.updateTaskTime);
+  const updateTaskDueDate = useMutation(api.aiTools.updateTaskDueDate);
 
   const { projects, events, loading } = useCalendarData();
 
@@ -94,6 +122,90 @@ export function CalendarView() {
     setDialogOpen(true);
   }, []);
 
+  const handleEventDragEnd = useCallback(
+    (
+      event: CalendarEvent,
+      newDate: Date,
+      newStartTime: string,
+      durationHours: number,
+    ) => {
+      setPendingReschedule({ event, newDate, newStartTime, durationHours });
+    },
+    [],
+  );
+
+  const handleConfirmReschedule = useCallback(async () => {
+    if (!pendingReschedule || !sessionToken || isRescheduling) return;
+    setIsRescheduling(true);
+    const { event, newDate, newStartTime, durationHours } = pendingReschedule;
+    try {
+      // All calculations in 24-hour space
+      const startHour = parseTimeToHour(newStartTime);
+      const endHourFloat = startHour + durationHours;
+      const endHourInt = Math.floor(endHourFloat);
+      const endMinutes = Math.round((endHourFloat - endHourInt) * 60);
+      let displayHour = endHourInt % 12;
+      if (displayHour === 0) displayHour = 12;
+      const period = endHourInt >= 12 ? "PM" : "AM";
+      const newEndTime = `${displayHour}:${String(endMinutes).padStart(
+        2,
+        "0",
+      )} ${period}`;
+
+      // Debug logging for PM drag calculations
+      console.log("[Calendar drag] Saving reschedule", {
+        rawNewStartTime: newStartTime,
+        parsedStartHour: startHour,
+        durationHours,
+        endHourFloat,
+        endHourInt,
+        endMinutes,
+        newEndTime,
+      });
+
+      await updateTaskTime({
+        token: sessionToken,
+        projectId: event.projectId as Id<"projects">,
+        phaseOrder: event.phaseOrder,
+        taskOrder: event.taskOrder,
+        newStartTime,
+        newEndTime,
+      });
+
+      const oldDateKey = dateKey(event.date);
+      const newDateKey = dateKey(newDate);
+      if (oldDateKey !== newDateKey) {
+        await updateTaskDueDate({
+          token: sessionToken,
+          projectId: event.projectId as Id<"projects">,
+          phaseOrder: event.phaseOrder,
+          taskOrder: event.taskOrder,
+          newDate: newDateKey,
+        });
+      }
+
+      toast({ title: "Task rescheduled." });
+      setPendingReschedule(null);
+    } catch {
+      toast({
+        variant: "destructive",
+        title: "Failed to reschedule task.",
+      });
+    } finally {
+      setIsRescheduling(false);
+    }
+  }, [
+    isRescheduling,
+    pendingReschedule,
+    sessionToken,
+    updateTaskDueDate,
+    updateTaskTime,
+  ]);
+
+  const handleCancelReschedule = useCallback(() => {
+    setPendingReschedule(null);
+  }, []);
+
   const handleDayMoreClick = useCallback((date: Date) => {
     setDayTasksModalDate(date);
   }, []);
@@ -146,6 +258,7 @@ export function CalendarView() {
             eventsByDate={eventsByDate}
             onSelectDate={handleSelectDate}
             onEventClick={handleEventClick}
+            onEventDragEnd={handleEventDragEnd}
           />
         )}
 
@@ -175,6 +288,74 @@ export function CalendarView() {
         onOpenChange={(open) => !open && setDayTasksModalDate(null)}
         onEventClick={handleEventClick}
       />
+
+      <Dialog
+        open={pendingReschedule !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingReschedule(null);
+        }}
+      >
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Confirm reschedule</DialogTitle>
+            <DialogDescription>
+              {pendingReschedule && (
+                <>
+                  You&apos;re about to move{" "}
+                  <span className="font-medium">
+                    {pendingReschedule.event.taskName}
+                  </span>{" "}
+                  to{" "}
+                  {pendingReschedule.newDate.toLocaleDateString("en-US", {
+                    weekday: "short",
+                    month: "short",
+                    day: "numeric",
+                  })}
+                  ,{" "}
+                  {pendingReschedule.newStartTime}
+                  {(() => {
+                    const startHour = parseTimeToHour(
+                      pendingReschedule.newStartTime,
+                    );
+                    const endHourFloat = startHour + pendingReschedule.durationHours;
+                    const endHourInt = Math.floor(endHourFloat);
+                    const endMinutes = Math.round(
+                      (endHourFloat - endHourInt) * 60,
+                    );
+                    let displayHour = endHourInt % 12;
+                    if (displayHour === 0) displayHour = 12;
+                    const period = endHourInt >= 12 ? "PM" : "AM";
+                    const endLabel = `${displayHour}:${String(
+                      endMinutes,
+                    ).padStart(2, "0")} ${period}`;
+                    return ` – ${endLabel}`;
+                  })()}
+                  .
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleCancelReschedule}
+              disabled={isRescheduling}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleConfirmReschedule}
+              disabled={isRescheduling || !sessionToken}
+            >
+              Confirm
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
