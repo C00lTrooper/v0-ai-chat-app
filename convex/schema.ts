@@ -58,6 +58,17 @@ export default defineSchema({
     createdAt: v.number(),
   }).index("by_chatId", ["chatId"]),
 
+  features: defineTable({
+    projectId: v.id("projects"),
+    phaseOrder: v.number(),
+    name: v.string(),
+    description: v.string(),
+    createdAt: v.number(),
+    order: v.number(),
+  })
+    .index("by_project_phase", ["projectId", "phaseOrder"])
+    .index("by_project_order", ["projectId", "order"]),
+
   tasks: defineTable({
     projectId: v.id("projects"),
     phaseOrder: v.number(),
@@ -66,6 +77,7 @@ export default defineSchema({
     description: v.optional(v.string()),
     createdAt: v.number(),
     parentTaskId: v.optional(v.id("tasks")),
+    featureId: v.optional(v.id("features")),
   }).index("by_project_phase_task", ["projectId", "phaseOrder", "taskOrder"]),
 
   subtasks: defineTable({

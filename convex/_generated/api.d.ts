@@ -14,6 +14,7 @@ import type * as auth from "../auth.js";
 import type * as budget from "../budget.js";
 import type * as chats from "../chats.js";
 import type * as conflicts from "../conflicts.js";
+import type * as features from "../features.js";
 import type * as projects from "../projects.js";
 import type * as tasks from "../tasks.js";
 
@@ -30,6 +31,7 @@ declare const fullApi: ApiFromModules<{
   budget: typeof budget;
   chats: typeof chats;
   conflicts: typeof conflicts;
+  features: typeof features;
   projects: typeof projects;
   tasks: typeof tasks;
 }>;

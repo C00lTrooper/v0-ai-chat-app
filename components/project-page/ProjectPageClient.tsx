@@ -20,6 +20,7 @@ import {
   Sparkles,
   GanttChart,
   Wallet,
+  Puzzle,
 } from "lucide-react";
 import {
   Tooltip,
@@ -32,6 +33,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { TimelineSection } from "@/components/project-page/TimelineSection";
 import { OverviewSection } from "@/components/project-page/OverviewSection";
 import { TasksSection } from "@/components/project-page/TasksSection";
+import { FeaturesSection } from "@/components/project-page/FeaturesSection";
 import { ChatSection } from "@/components/project-page/ChatSection";
 import { SettingsSection } from "@/components/project-page/SettingsSection";
 import { BudgetSection } from "@/components/project-page/BudgetSection";
@@ -46,6 +48,7 @@ type NavItem = {
 
 const NAV_ITEMS: NavItem[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
+  { id: "features", label: "Features", icon: Puzzle },
   { id: "tasks", label: "Tasks", icon: CheckSquare },
   { id: "timeline", label: "Timeline", icon: GanttChart },
   { id: "budget", label: "Budget", icon: Wallet },
@@ -110,6 +113,8 @@ function SectionContent({
   switch (section) {
     case "overview":
       return <OverviewSection project={project} />;
+    case "features":
+      return <FeaturesSection project={project} />;
     case "tasks":
       return (
         <TasksSection project={project} onTaskCompleted={onTaskCompleted} />
