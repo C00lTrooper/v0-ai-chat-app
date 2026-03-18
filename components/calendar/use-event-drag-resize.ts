@@ -69,38 +69,32 @@ export function useEventDragResize(options: UseEventDragResizeOptions) {
     onDrop: (state) => {
       if (!onDrop) return;
 
-      const dragState: EventDragState = {
-        ...state.payload,
-        deltaX: state.deltaX,
-        deltaY: state.deltaY,
-        hasExceededThreshold: state.hasExceededThreshold,
-      };
-
       const totalHours = endHour - startHour;
 
-      const deltaHoursRaw = dragState.deltaY / hourHeight;
+      const deltaHoursRaw = state.deltaY / hourHeight;
       const snappedDeltaHours = Math.round(deltaHoursRaw * 4) / 4;
 
-      let newStartHour = dragState.startHour;
-      let newDuration = dragState.durationHours;
+      let newStartHour = state.payload.startHour;
+      let newDuration = state.payload.durationHours;
 
-      if (dragState.mode === "move") {
-        newStartHour = dragState.startHour + snappedDeltaHours;
+      if (state.payload.mode === "move") {
+        newStartHour = state.payload.startHour + snappedDeltaHours;
         newStartHour = Math.max(
           startHour,
-          Math.min(endHour - dragState.durationHours, newStartHour),
+          Math.min(endHour - state.payload.durationHours, newStartHour),
         );
-        newDuration = dragState.durationHours;
-      } else if (dragState.mode === "resize-bottom") {
-        newDuration = dragState.durationHours + snappedDeltaHours;
+        newDuration = state.payload.durationHours;
+      } else if (state.payload.mode === "resize-bottom") {
+        newDuration = state.payload.durationHours + snappedDeltaHours;
         newDuration = Math.max(
           0.25,
-          Math.min(endHour - dragState.startHour, newDuration),
+          Math.min(endHour - state.payload.startHour, newDuration),
         );
-        newStartHour = dragState.startHour;
-      } else if (dragState.mode === "resize-top") {
-        const endHourFixed = dragState.startHour + dragState.durationHours;
-        newStartHour = dragState.startHour + snappedDeltaHours;
+        newStartHour = state.payload.startHour;
+      } else if (state.payload.mode === "resize-top") {
+        const endHourFixed =
+          state.payload.startHour + state.payload.durationHours;
+        newStartHour = state.payload.startHour + snappedDeltaHours;
         newStartHour = Math.max(
           startHour,
           Math.min(endHourFixed - 0.25, newStartHour),
@@ -119,15 +113,15 @@ export function useEventDragResize(options: UseEventDragResizeOptions) {
         minutes,
       ).padStart(2, "0")}`;
 
-      let newDayIndex = dragState.dayIndex;
-      if (dragState.mode === "move" && allowHorizontalMove && getGridRect) {
+      let newDayIndex = state.payload.dayIndex;
+      if (state.payload.mode === "move" && allowHorizontalMove && getGridRect) {
         const gridRect = getGridRect();
         const colWidth = gridRect ? gridRect.width / columnCount : 0;
         if (colWidth > 0) {
-          const dayOffset = Math.round(dragState.deltaX / colWidth);
+          const dayOffset = Math.round(state.deltaX / colWidth);
           newDayIndex = Math.min(
             columnCount - 1,
-            Math.max(0, dragState.dayIndex + dayOffset),
+            Math.max(0, state.payload.dayIndex + dayOffset),
           );
         }
       }
@@ -143,7 +137,7 @@ export function useEventDragResize(options: UseEventDragResizeOptions) {
         : new Date(currentDate);
 
       onDrop({
-        event: dragState.event,
+        event: state.payload.event,
         dayIndex: newDayIndex,
         newDate,
         newStartTime,
@@ -185,6 +179,21 @@ export function useEventDragResize(options: UseEventDragResizeOptions) {
     const baseTop = (snappedStartHour - startHour) * hourHeight;
     const baseHeight =
       Math.max(hourHeight / 2, durationHours * hourHeight) - 4;
+
+    const dragState: EventDragState | null = coreDrag
+      ? {
+          event: coreDrag.payload.event,
+          dayIndex: coreDrag.payload.dayIndex,
+          startClientX: coreDrag.payload.startClientX,
+          startClientY: coreDrag.payload.startClientY,
+          mode: coreDrag.payload.mode,
+          startHour: coreDrag.payload.startHour,
+          durationHours: coreDrag.payload.durationHours,
+          deltaX: coreDrag.deltaX,
+          deltaY: coreDrag.deltaY,
+          hasExceededThreshold: coreDrag.hasExceededThreshold,
+        }
+      : null;
 
     const isDragging =
       dragState &&
@@ -237,7 +246,20 @@ export function useEventDragResize(options: UseEventDragResizeOptions) {
   }
 
   return {
-    dragState: dragState ?? null,
+    dragState: coreDrag
+      ? {
+          event: coreDrag.payload.event,
+          dayIndex: coreDrag.payload.dayIndex,
+          startClientX: coreDrag.payload.startClientX,
+          startClientY: coreDrag.payload.startClientY,
+          mode: coreDrag.payload.mode,
+          startHour: coreDrag.payload.startHour,
+          durationHours: coreDrag.payload.durationHours,
+          deltaX: coreDrag.deltaX,
+          deltaY: coreDrag.deltaY,
+          hasExceededThreshold: coreDrag.hasExceededThreshold,
+        }
+      : null,
     beginDrag,
     getVisualPosition,
   };

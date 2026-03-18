@@ -118,4 +118,19 @@ export default defineSchema({
   })
     .index("by_userId", ["userId"])
     .index("by_projectId", ["projectId"]),
+
+  schedulingSnapshots: defineTable({
+    userId: v.id("users"),
+    projectId: v.id("projects"),
+    phaseOrder: v.number(),
+    snapshot: v.array(
+      v.object({
+        taskOrder: v.number(),
+        date: v.string(),
+        time: v.string(),
+        endTime: v.optional(v.string()),
+      }),
+    ),
+    createdAt: v.number(),
+  }).index("by_project_phase_user", ["projectId", "phaseOrder", "userId"]),
 });

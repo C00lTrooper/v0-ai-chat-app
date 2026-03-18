@@ -2,6 +2,7 @@ import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import { internal } from "./_generated/api";
 
 async function authenticateUser(
   ctx: QueryCtx | MutationCtx,
@@ -220,6 +221,21 @@ export const update = mutation({
       throw new Error("Not found or not authorized");
     }
 
+    let oldProjectWbs: unknown = null;
+    let newProjectWbs: unknown = null;
+    if (args.data !== undefined) {
+      try {
+        oldProjectWbs = JSON.parse(project.data);
+      } catch {
+        oldProjectWbs = null;
+      }
+      try {
+        newProjectWbs = JSON.parse(args.data);
+      } catch {
+        newProjectWbs = null;
+      }
+    }
+
     await ctx.db.patch(args.projectId, {
       ...(args.projectName !== undefined && {
         projectName: args.projectName,
@@ -232,6 +248,47 @@ export const update = mutation({
       ...(args.data !== undefined && { data: args.data }),
       updatedAt: Date.now(),
     });
+
+    // If phase start/end dates changed (from direct edits), run scheduling
+    // asynchronously for every affected phase.
+    if (args.data !== undefined && oldProjectWbs && newProjectWbs) {
+      type WbsPhaseLite = { order: number; start_date: string; end_date: string };
+      const oldPhasesArr = (oldProjectWbs as { project_wbs?: WbsPhaseLite[] })
+        .project_wbs ?? [];
+      const newPhasesArr = (newProjectWbs as { project_wbs?: WbsPhaseLite[] })
+        .project_wbs ?? [];
+
+      const oldByOrder = new Map<number, WbsPhaseLite>();
+      for (const p of oldPhasesArr) oldByOrder.set(p.order, p);
+      const newByOrder = new Map<number, WbsPhaseLite>();
+      for (const p of newPhasesArr) newByOrder.set(p.order, p);
+
+      const changedPhaseOrders: number[] = [];
+      const allOrders = new Set<number>([
+        ...Array.from(oldByOrder.keys()),
+        ...Array.from(newByOrder.keys()),
+      ]);
+      for (const order of allOrders) {
+        const o = oldByOrder.get(order);
+        const n = newByOrder.get(order);
+        if (!o || !n) {
+          changedPhaseOrders.push(order);
+          continue;
+        }
+        if (o.start_date !== n.start_date || o.end_date !== n.end_date) {
+          changedPhaseOrders.push(order);
+        }
+      }
+
+      for (const phaseOrder of changedPhaseOrders) {
+        const phaseId = `${args.projectId}:${phaseOrder}`;
+        ctx.scheduler.runAfter(
+          0,
+          internal.scheduling.runSchedulingEngineInternal,
+          { token: args.token, phaseId },
+        );
+      }
+    }
 
     return { ok: true as const };
   },

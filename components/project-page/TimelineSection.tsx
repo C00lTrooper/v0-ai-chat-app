@@ -5,6 +5,7 @@ import type { Project } from "@/lib/project-schema";
 import { PROJECT_COLORS, formatDayHeader } from "@/lib/calendar-utils";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { ToastAction } from "@/components/ui/toast";
 import {
   Sheet,
   SheetContent,
@@ -113,6 +114,9 @@ export function TimelineSection({ project }: TimelineSectionProps) {
   const [loadingAll, setLoadingAll] = useState(false);
   const [optimisticPhases, setOptimisticPhases] =
     useState<PhaseWithLayout[] | null>(null);
+  const [schedulingPhaseId, setSchedulingPhaseId] = useState<string | null>(
+    null,
+  );
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const projectPhases = useMemo(() => {
@@ -540,6 +544,53 @@ export function TimelineSection({ project }: TimelineSectionProps) {
           projectId: project._id as Id<"projects">,
           data: dataStr,
         });
+        const phaseId = `${project._id}:${movedOrder}`;
+        setSchedulingPhaseId(phaseId);
+        void (async () => {
+          try {
+            const result = await convexClient.action(
+              api.scheduling.runSchedulingEngine,
+              {
+                token: sessionToken,
+                phaseId,
+              },
+            );
+            if (result.tier === "silent") {
+              // no UI
+            } else if (result.tier === "toast") {
+              toast({
+                title: "Tasks rescheduled",
+                description: "Some tasks were shifted to fit within the phase.",
+                action: (
+                  <ToastAction
+                    altText="Undo scheduling"
+                    onClick={async () => {
+                      try {
+                        await convexClient.mutation(
+                          api.scheduling.undoLastSchedulingRun,
+                          {
+                            token: sessionToken,
+                            phaseId,
+                          },
+                        );
+                      } catch {
+                        // ignore
+                      }
+                    }}
+                  >
+                    Undo
+                  </ToastAction>
+                ),
+              });
+            } else {
+              // For review tier, log silently for now to avoid large red toast.
+              // A dedicated review modal can be wired up here later.
+              console.warn("Scheduling engine review tier result", result);
+            }
+          } finally {
+            setSchedulingPhaseId(null);
+          }
+        })();
       } catch {
         setOptimisticPhases(null);
         toast({
@@ -757,6 +808,9 @@ export function TimelineSection({ project }: TimelineSectionProps) {
                 dragState.hasExceededThreshold &&
                 dragState.payload.phaseId === phaseId;
 
+              const isSchedulingThis =
+                schedulingPhaseId === `${project._id}:${p.phase.order}`;
+
               return (
                 <button
                   key={i}
@@ -828,6 +882,13 @@ export function TimelineSection({ project }: TimelineSectionProps) {
                     <div className="pointer-events-none absolute -top-5 left-1/2 -translate-x-1/2 rounded bg-background/90 px-2 py-0.5 text-[10px] text-foreground shadow">
                       {formatDateShort(effectiveStart)} –{" "}
                       {formatDateShort(effectiveEnd)}
+                    </div>
+                  )}
+                  {isSchedulingThis && (
+                    <div className="pointer-events-none absolute inset-x-0 bottom-1 flex justify-center">
+                      <span className="rounded bg-black/30 px-2 py-0.5 text-[10px]">
+                        Optimizing tasks…
+                      </span>
                     </div>
                   )}
                 </button>
