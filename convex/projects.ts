@@ -2,7 +2,6 @@ import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { internal } from "./_generated/api";
 
 async function authenticateUser(
   ctx: QueryCtx | MutationCtx,
@@ -158,6 +157,22 @@ export const getById = query({
   },
 });
 
+export const getNeedsReschedule = query({
+  args: { token: v.string(), projectId: v.id("projects") },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const user = await authenticateUser(ctx, args.token);
+    const project = await ctx.db.get(args.projectId);
+    if (!project) return false;
+
+    const isOwner = project.ownerId === user._id;
+    const isShared = project.sharedWith.includes(user._id);
+    if (!isOwner && !isShared) return false;
+
+    return project.needsReschedule ?? false;
+  },
+});
+
 // ---------------------------------------------------------------------------
 // Mutations
 // ---------------------------------------------------------------------------
@@ -195,6 +210,7 @@ export const create = mutation({
       objective: args.objective,
       targetDate: args.targetDate,
       data: args.data,
+      needsReschedule: false,
       createdAt: now,
       updatedAt: now,
     });
@@ -249,8 +265,7 @@ export const update = mutation({
       updatedAt: Date.now(),
     });
 
-    // If phase start/end dates changed (from direct edits), run scheduling
-    // asynchronously for every affected phase.
+    // If any phase start/end dates changed, mark the project as out of sync.
     if (args.data !== undefined && oldProjectWbs && newProjectWbs) {
       type WbsPhaseLite = { order: number; start_date: string; end_date: string };
       const oldPhasesArr = (oldProjectWbs as { project_wbs?: WbsPhaseLite[] })
@@ -280,13 +295,11 @@ export const update = mutation({
         }
       }
 
-      for (const phaseOrder of changedPhaseOrders) {
-        const phaseId = `${args.projectId}:${phaseOrder}`;
-        ctx.scheduler.runAfter(
-          0,
-          internal.scheduling.runSchedulingEngineInternal,
-          { token: args.token, phaseId },
-        );
+      if (changedPhaseOrders.length > 0) {
+        await ctx.db.patch(args.projectId, {
+          needsReschedule: true,
+          updatedAt: Date.now(),
+        });
       }
     }
 

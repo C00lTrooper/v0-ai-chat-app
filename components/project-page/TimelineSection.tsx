@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import type { Project } from "@/lib/project-schema";
 import { PROJECT_COLORS, formatDayHeader } from "@/lib/calendar-utils";
 import { cn } from "@/lib/utils";
@@ -17,7 +17,9 @@ import { useAuth } from "@/components/auth-provider";
 import { convexClient } from "@/lib/convex";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useQuery } from "convex/react";
 import { toast } from "@/hooks/use-toast";
+import { Spinner } from "@/components/ui/spinner";
 import {
   useTimelinePhaseDrag,
   type PhaseLayout,
@@ -114,10 +116,15 @@ export function TimelineSection({ project }: TimelineSectionProps) {
   const [loadingAll, setLoadingAll] = useState(false);
   const [optimisticPhases, setOptimisticPhases] =
     useState<PhaseWithLayout[] | null>(null);
-  const [schedulingPhaseId, setSchedulingPhaseId] = useState<string | null>(
-    null,
-  );
+  const [isSyncing, setIsSyncing] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  const needsReschedule = useQuery(
+    api.projects.getNeedsReschedule,
+    sessionToken
+      ? { token: sessionToken, projectId: project._id as Id<"projects"> }
+      : "skip",
+  );
 
   const projectPhases = useMemo(() => {
     let parsed: Project | null = null;
@@ -544,53 +551,6 @@ export function TimelineSection({ project }: TimelineSectionProps) {
           projectId: project._id as Id<"projects">,
           data: dataStr,
         });
-        const phaseId = `${project._id}:${movedOrder}`;
-        setSchedulingPhaseId(phaseId);
-        void (async () => {
-          try {
-            const result = await convexClient.action(
-              api.scheduling.runSchedulingEngine,
-              {
-                token: sessionToken,
-                phaseId,
-              },
-            );
-            if (result.tier === "silent") {
-              // no UI
-            } else if (result.tier === "toast") {
-              toast({
-                title: "Tasks rescheduled",
-                description: "Some tasks were shifted to fit within the phase.",
-                action: (
-                  <ToastAction
-                    altText="Undo scheduling"
-                    onClick={async () => {
-                      try {
-                        await convexClient.mutation(
-                          api.scheduling.undoLastSchedulingRun,
-                          {
-                            token: sessionToken,
-                            phaseId,
-                          },
-                        );
-                      } catch {
-                        // ignore
-                      }
-                    }}
-                  >
-                    Undo
-                  </ToastAction>
-                ),
-              });
-            } else {
-              // For review tier, log silently for now to avoid large red toast.
-              // A dedicated review modal can be wired up here later.
-              console.warn("Scheduling engine review tier result", result);
-            }
-          } finally {
-            setSchedulingPhaseId(null);
-          }
-        })();
       } catch {
         setOptimisticPhases(null);
         toast({
@@ -600,6 +560,141 @@ export function TimelineSection({ project }: TimelineSectionProps) {
       }
     },
   });
+
+  const outOfSync = Boolean(needsReschedule);
+
+  const lastActivityRef = useRef<number>(Date.now());
+  const pendingSyncRef = useRef(false);
+  const syncInFlightRef = useRef(false);
+
+  const runSync = useCallback(
+    async (reason: string) => {
+      if (!sessionToken) return;
+      if (!convexClient) return;
+      if (syncInFlightRef.current) return;
+      if (!outOfSync) return;
+      if (viewAll) return;
+
+      // Never start during active drag/resize.
+      if (
+        dragState?.hasExceededThreshold &&
+        reason !== "visibilitychange" &&
+        reason !== "unmount"
+      ) {
+        pendingSyncRef.current = true;
+        return;
+      }
+
+      syncInFlightRef.current = true;
+      setIsSyncing(true);
+
+      try {
+        const projectId = project._id as Id<"projects">;
+        await convexClient.action(api.scheduling.runProjectSchedulingEngine, {
+          token: sessionToken,
+          projectId,
+        });
+
+        toast({
+          title: "Tasks updated",
+          description: "Timeline tasks have been rescheduled to match the phase dates.",
+          action: (
+            <ToastAction
+              altText="Undo task rescheduling"
+              onClick={async () => {
+                try {
+                  await convexClient.mutation(
+                    api.scheduling.undoLastProjectSchedulingRun,
+                    {
+                      token: sessionToken,
+                      projectId,
+                    },
+                  );
+                  toast({ title: "Undo complete" });
+                } catch {
+                  toast({
+                    variant: "destructive",
+                    title: "Undo failed",
+                  });
+                }
+              }}
+            >
+              Undo
+            </ToastAction>
+          ),
+        });
+      } catch {
+        toast({
+          variant: "destructive",
+          title: "Failed to sync tasks.",
+        });
+      } finally {
+        syncInFlightRef.current = false;
+        setIsSyncing(false);
+        pendingSyncRef.current = false;
+      }
+    },
+    [sessionToken, outOfSync, viewAll, dragState, project._id],
+  );
+
+  // If we got a request during drag, run right after the user releases.
+  useEffect(() => {
+    if (!pendingSyncRef.current) return;
+    if (dragState?.hasExceededThreshold) return;
+    void runSync("post-drag");
+  }, [dragState?.hasExceededThreshold, runSync]);
+
+  // Idle / visibility triggers for deferred recalculation.
+  useEffect(() => {
+    if (!sessionToken) return;
+    if (viewAll) return;
+
+    const touchActivity = () => {
+      lastActivityRef.current = Date.now();
+    };
+
+    const activityEvents: Array<keyof WindowEventMap> = [
+      "mousemove",
+      "mousedown",
+      "keydown",
+      "touchstart",
+    ];
+    for (const ev of activityEvents) {
+      window.addEventListener(ev, touchActivity, { passive: true });
+    }
+
+    const handleVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        void runSync("visibilitychange");
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    const interval = window.setInterval(() => {
+      const idleMs = Date.now() - lastActivityRef.current;
+      if (idleMs > 10_000) {
+        void runSync("idle");
+      }
+    }, 500);
+
+    return () => {
+      for (const ev of activityEvents) {
+        window.removeEventListener(ev, touchActivity);
+      }
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.clearInterval(interval);
+    };
+  }, [sessionToken, viewAll, runSync]);
+
+  // If the user navigates away from the timeline, sync once at the stable point.
+  useEffect(() => {
+    return () => {
+      if (syncInFlightRef.current) return;
+      if (!outOfSync) return;
+      void runSync("unmount");
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [outOfSync]);
 
   if (!hasPhases) {
     return (
@@ -667,6 +762,29 @@ export function TimelineSection({ project }: TimelineSectionProps) {
           >
             {viewAll ? "All projects" : "This project only"}
           </Button>
+          {!viewAll && (
+            <div className="flex items-center gap-2">
+              {isSyncing ? (
+                <span className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-xs text-muted-foreground">
+                  <Spinner className="size-3" />
+                  Syncing…
+                </span>
+              ) : outOfSync ? (
+                <span className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-xs text-muted-foreground">
+                  Tasks out of sync
+                </span>
+              ) : null}
+              <Button
+                variant={outOfSync ? "secondary" : "ghost"}
+                size="sm"
+                className="h-7 px-2.5 text-xs"
+                disabled={!outOfSync || isSyncing}
+                onClick={() => void runSync("manual")}
+              >
+                Sync Tasks
+              </Button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -808,9 +926,6 @@ export function TimelineSection({ project }: TimelineSectionProps) {
                 dragState.hasExceededThreshold &&
                 dragState.payload.phaseId === phaseId;
 
-              const isSchedulingThis =
-                schedulingPhaseId === `${project._id}:${p.phase.order}`;
-
               return (
                 <button
                   key={i}
@@ -882,13 +997,6 @@ export function TimelineSection({ project }: TimelineSectionProps) {
                     <div className="pointer-events-none absolute -top-5 left-1/2 -translate-x-1/2 rounded bg-background/90 px-2 py-0.5 text-[10px] text-foreground shadow">
                       {formatDateShort(effectiveStart)} –{" "}
                       {formatDateShort(effectiveEnd)}
-                    </div>
-                  )}
-                  {isSchedulingThis && (
-                    <div className="pointer-events-none absolute inset-x-0 bottom-1 flex justify-center">
-                      <span className="rounded bg-black/30 px-2 py-0.5 text-[10px]">
-                        Optimizing tasks…
-                      </span>
                     </div>
                   )}
                 </button>

@@ -28,6 +28,7 @@ export default defineSchema({
     objective: v.string(),
     targetDate: v.string(),
     data: v.string(),
+    needsReschedule: v.optional(v.boolean()),
     pinned: v.optional(v.boolean()),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -123,6 +124,7 @@ export default defineSchema({
     userId: v.id("users"),
     projectId: v.id("projects"),
     phaseOrder: v.number(),
+    runId: v.optional(v.string()),
     snapshot: v.array(
       v.object({
         taskOrder: v.number(),
@@ -132,5 +134,8 @@ export default defineSchema({
       }),
     ),
     createdAt: v.number(),
-  }).index("by_project_phase_user", ["projectId", "phaseOrder", "userId"]),
+  })
+    .index("by_project_phase_user", ["projectId", "phaseOrder", "userId"])
+    .index("by_project_user", ["projectId", "userId"])
+    .index("by_project_user_runId", ["projectId", "userId", "runId"]),
 });

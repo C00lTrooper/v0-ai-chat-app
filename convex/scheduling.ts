@@ -1,4 +1,4 @@
-import { action, internalMutation } from "./_generated/server";
+import { action, internalMutation, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -978,6 +978,188 @@ export const undoLastSchedulingRun = internalMutation({
     await ctx.db.delete(recent._id);
 
     return true;
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Project-level deferred recalculation (runs the engine for every phase)
+// ---------------------------------------------------------------------------
+
+function makeRunId(): string {
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+export const runProjectSchedulingEngineInternal = internalMutation({
+  args: {
+    token: v.string(),
+    projectId: v.id("projects"),
+  },
+  returns: v.object({
+    runId: v.string(),
+    phasesProcessed: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const user = await authenticateUser(ctx, args.token);
+    await assertProjectAccess(ctx, user._id, args.projectId);
+
+    const project = await ctx.db.get(args.projectId);
+    if (!project) throw new Error("Project not found");
+
+    const parsed = parseProjectData(project.data);
+    if (!Array.isArray(parsed.project_wbs)) {
+      throw new Error("Invalid project WBS");
+    }
+
+    const runId = makeRunId();
+    const createdAt = Date.now();
+
+    const updatedPhases = [];
+    let phasesProcessed = 0;
+
+    for (const phase of parsed.project_wbs) {
+      const { updatedPhase, snapshots } = schedulePhaseTasks(phase);
+
+      // Save the pre-run snapshot for undo.
+      await ctx.db.insert("schedulingSnapshots", {
+        userId: user._id,
+        projectId: args.projectId,
+        phaseOrder: phase.order,
+        runId,
+        snapshot: snapshots,
+        createdAt,
+      });
+
+      updatedPhases.push(updatedPhase);
+      phasesProcessed++;
+    }
+
+    const nextProject = {
+      ...parsed,
+      project_wbs: updatedPhases,
+    };
+
+    await ctx.db.patch(args.projectId, {
+      data: JSON.stringify(nextProject),
+      updatedAt: Date.now(),
+      needsReschedule: false,
+    });
+
+    return { runId, phasesProcessed };
+  },
+});
+
+export const runProjectSchedulingEngine = action({
+  args: {
+    token: v.string(),
+    projectId: v.id("projects"),
+  },
+  returns: v.object({
+    runId: v.string(),
+    phasesProcessed: v.number(),
+  }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ runId: string; phasesProcessed: number }> => {
+    return await ctx.runMutation(
+      internal.scheduling.runProjectSchedulingEngineInternal,
+      args,
+    );
+  },
+});
+
+export const undoLastProjectSchedulingRunInternal = internalMutation({
+  args: {
+    token: v.string(),
+    projectId: v.id("projects"),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const user = await authenticateUser(ctx, args.token);
+    await assertProjectAccess(ctx, user._id, args.projectId);
+
+    const latest = await ctx.db
+      .query("schedulingSnapshots")
+      .withIndex("by_project_user", (q) =>
+        q.eq("projectId", args.projectId).eq("userId", user._id),
+      )
+      .order("desc")
+      .take(1);
+
+    if (latest.length !== 1) return false;
+    const latestDoc = latest[0];
+    if (Date.now() - latestDoc.createdAt > 24 * 60 * 60 * 1000) {
+      return false;
+    }
+    const runId = latestDoc.runId;
+    if (!runId) return false;
+
+    const docs = await ctx.db
+      .query("schedulingSnapshots")
+      .withIndex("by_project_user_runId", (q) =>
+        q.eq("projectId", args.projectId)
+          .eq("userId", user._id)
+          .eq("runId", runId),
+      )
+      .take(50);
+
+    const byPhase = new Map<number, Doc<"schedulingSnapshots">>();
+    for (const d of docs) {
+      byPhase.set(d.phaseOrder, d);
+    }
+
+    const project = await ctx.db.get(args.projectId);
+    if (!project) throw new Error("Project not found");
+
+    const parsed = parseProjectData(project.data);
+
+    for (const phase of parsed.project_wbs) {
+      const doc = byPhase.get(phase.order);
+      if (!doc) continue;
+
+      const map = new Map<number, { date: string; time: string; endTime?: string }>();
+      for (const snap of doc.snapshot) {
+        map.set(snap.taskOrder, { date: snap.date, time: snap.time, endTime: snap.endTime });
+      }
+
+      phase.tasks = phase.tasks.map((t) => {
+        const snap = map.get(t.order);
+        if (!snap) return t;
+        return {
+          ...t,
+          date: snap.date,
+          time: snap.time,
+          ...(snap.endTime ? { endTime: snap.endTime } : {}),
+        };
+      });
+    }
+
+    await ctx.db.patch(args.projectId, {
+      data: JSON.stringify(parsed),
+      updatedAt: Date.now(),
+      needsReschedule: false,
+    });
+
+    // Delete snapshot docs for that run.
+    for (const d of docs) {
+      await ctx.db.delete(d._id);
+    }
+
+    return true;
+  },
+});
+
+export const undoLastProjectSchedulingRun = mutation({
+  args: {
+    token: v.string(),
+    projectId: v.id("projects"),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args): Promise<boolean> => {
+    return await ctx.runMutation(
+      internal.scheduling.undoLastProjectSchedulingRunInternal,
+      args,
+    );
   },
 });
 
