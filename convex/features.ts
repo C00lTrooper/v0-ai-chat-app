@@ -132,6 +132,85 @@ export const update = mutation({
   },
 });
 
+export const movePhase = mutation({
+  args: {
+    token: v.string(),
+    featureId: v.id("features"),
+    phaseOrder: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const user = await authenticateUser(ctx, args.token);
+    const feature = await ctx.db.get(args.featureId);
+    if (!feature) {
+      throw new Error("Feature not found");
+    }
+
+    await assertCanAccessProject(ctx, user._id, feature.projectId);
+
+    if (feature.phaseOrder === args.phaseOrder) {
+      return { ok: true as const };
+    }
+
+    const existingInTarget = await ctx.db
+      .query("features")
+      .withIndex("by_project_phase", (q) =>
+        q.eq("projectId", feature.projectId).eq("phaseOrder", args.phaseOrder),
+      )
+      .collect();
+    const nextOrder =
+      existingInTarget.reduce((max, f) => (f.order > max ? f.order : max), -1) +
+      1;
+
+    await ctx.db.patch(args.featureId, {
+      phaseOrder: args.phaseOrder,
+      order: nextOrder,
+    });
+
+    return { ok: true as const };
+  },
+});
+
+export const save = mutation({
+  args: {
+    token: v.string(),
+    featureId: v.id("features"),
+    name: v.string(),
+    description: v.string(),
+    phaseOrder: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const user = await authenticateUser(ctx, args.token);
+    const feature = await ctx.db.get(args.featureId);
+    if (!feature) {
+      throw new Error("Feature not found");
+    }
+
+    await assertCanAccessProject(ctx, user._id, feature.projectId);
+
+    let nextOrder: number | undefined;
+    if (feature.phaseOrder !== args.phaseOrder) {
+      const existingInTarget = await ctx.db
+        .query("features")
+        .withIndex("by_project_phase", (q) =>
+          q.eq("projectId", feature.projectId).eq("phaseOrder", args.phaseOrder),
+        )
+        .collect();
+      nextOrder =
+        existingInTarget.reduce((max, f) => (f.order > max ? f.order : max), -1) +
+        1;
+    }
+
+    await ctx.db.patch(args.featureId, {
+      name: args.name.trim(),
+      description: args.description.trim(),
+      phaseOrder: args.phaseOrder,
+      ...(nextOrder !== undefined ? { order: nextOrder } : {}),
+    });
+
+    return { ok: true as const };
+  },
+});
+
 export const reorder = mutation({
   args: {
     token: v.string(),
