@@ -1,7 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import type { CalendarEvent } from "@/lib/calendar-utils";
+import {
+  usePointerDragCore,
+  type PointerDragState,
+} from "@/components/shared/usePointerDragCore";
 
 export type DragMode = "move" | "resize-top" | "resize-bottom";
 
@@ -18,7 +21,6 @@ export interface EventDragState {
   hasExceededThreshold: boolean;
 }
 
-export const DRAG_THRESHOLD_PX = 5;
 export const RESIZE_HANDLE_PX = 8;
 
 interface UseEventDragResizeOptions {
@@ -40,6 +42,11 @@ interface UseEventDragResizeOptions {
   }) => void;
 }
 
+type EventPayload = Omit<
+  EventDragState,
+  "deltaX" | "deltaY" | "hasExceededThreshold"
+>;
+
 export function useEventDragResize(options: UseEventDragResizeOptions) {
   const {
     currentDate,
@@ -54,49 +61,23 @@ export function useEventDragResize(options: UseEventDragResizeOptions) {
     onDrop,
   } = options;
 
-  const [dragState, setDragState] = useState<EventDragState | null>(null);
+  const {
+    dragState: coreDrag,
+    beginDrag: beginCoreDrag,
+  } = usePointerDragCore<EventPayload>({
+    onClick: (payload) => onClick(payload.event),
+    onDrop: (state) => {
+      if (!onDrop) return;
 
-  useEffect(() => {
-    if (!dragState) return;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      setDragState((prev) =>
-        prev
-          ? {
-              ...prev,
-              deltaX: e.clientX - prev.startClientX,
-              deltaY: e.clientY - prev.startClientY,
-              hasExceededThreshold:
-                prev.hasExceededThreshold ||
-                Math.hypot(
-                  e.clientX - prev.startClientX,
-                  e.clientY - prev.startClientY,
-                ) > DRAG_THRESHOLD_PX,
-            }
-          : null,
-      );
-    };
-
-    const handleMouseUp = () => {
-      if (!dragState) {
-        return;
-      }
-
-      // If we never exceeded the drag threshold, treat as a simple click.
-      if (!dragState.hasExceededThreshold) {
-        setDragState(null);
-        onClick(dragState.event);
-        return;
-      }
-
-      if (!onDrop) {
-        setDragState(null);
-        return;
-      }
+      const dragState: EventDragState = {
+        ...state.payload,
+        deltaX: state.deltaX,
+        deltaY: state.deltaY,
+        hasExceededThreshold: state.hasExceededThreshold,
+      };
 
       const totalHours = endHour - startHour;
 
-      // Snap vertical movement to 15-minute increments in hours.
       const deltaHoursRaw = dragState.deltaY / hourHeight;
       const snappedDeltaHours = Math.round(deltaHoursRaw * 4) / 4;
 
@@ -127,19 +108,17 @@ export function useEventDragResize(options: UseEventDragResizeOptions) {
         newDuration = endHourFixed - newStartHour;
       }
 
-      // Snap resulting start hour to 15-minute increments and clamp.
       const relStart = newStartHour - startHour;
-      let relClamped = Math.max(0, Math.min(totalHours - newDuration, relStart));
+      const relClamped = Math.max(0, Math.min(totalHours - newDuration, relStart));
       const relQuarter = Math.round(relClamped * 4) / 4;
       const finalStartHour = startHour + relQuarter;
 
-      const hour24 = Math.floor(finalStartHour); // 0–23
-      const minutes = Math.round((finalStartHour - hour24) * 60); // 0–59
+      const hour24 = Math.floor(finalStartHour);
+      const minutes = Math.round((finalStartHour - hour24) * 60);
       const newStartTime = `${String(hour24).padStart(2, "0")}:${String(
         minutes,
-      ).padStart(2, "0")}`; // "HH:MM" 24-hour
+      ).padStart(2, "0")}`;
 
-      // Horizontal movement only changes the day for move drags when allowed.
       let newDayIndex = dragState.dayIndex;
       if (dragState.mode === "move" && allowHorizontalMove && getGridRect) {
         const gridRect = getGridRect();
@@ -170,35 +149,26 @@ export function useEventDragResize(options: UseEventDragResizeOptions) {
         newStartTime,
         durationHours: newDuration,
       });
-
-      setDragState(null);
-    };
-
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
-
-    return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, [
-    dragState,
-    currentDate,
-    startHour,
-    endHour,
-    hourHeight,
-    columnCount,
-    allowHorizontalMove,
-    getGridRect,
-    onClick,
-    onDrop,
-  ]);
+    },
+  });
 
   function beginDrag(
     base: Omit<EventDragState, "deltaX" | "deltaY" | "hasExceededThreshold">,
   ) {
-    setDragState({
-      ...base,
+    const payload: EventPayload = {
+      event: base.event,
+      dayIndex: base.dayIndex,
+      startClientX: base.startClientX,
+      startClientY: base.startClientY,
+      mode: base.mode,
+      startHour: base.startHour,
+      durationHours: base.durationHours,
+    };
+
+    beginCoreDrag({
+      payload,
+      startClientX: base.startClientX,
+      startClientY: base.startClientY,
       deltaX: 0,
       deltaY: 0,
       hasExceededThreshold: false,
@@ -206,11 +176,12 @@ export function useEventDragResize(options: UseEventDragResizeOptions) {
   }
 
   function getVisualPosition(args: {
+    eventId: string;
     snappedStartHour: number;
     durationHours: number;
     dayIndex: number;
   }) {
-    const { snappedStartHour, durationHours } = args;
+    const { snappedStartHour, durationHours, dayIndex } = args;
     const baseTop = (snappedStartHour - startHour) * hourHeight;
     const baseHeight =
       Math.max(hourHeight / 2, durationHours * hourHeight) - 4;
@@ -218,7 +189,7 @@ export function useEventDragResize(options: UseEventDragResizeOptions) {
     const isDragging =
       dragState &&
       dragState.event.id === args.eventId &&
-      dragState.dayIndex === args.dayIndex &&
+      dragState.dayIndex === dayIndex &&
       dragState.hasExceededThreshold;
 
     let top = baseTop;
@@ -266,7 +237,7 @@ export function useEventDragResize(options: UseEventDragResizeOptions) {
   }
 
   return {
-    dragState,
+    dragState: dragState ?? null,
     beginDrag,
     getVisualPosition,
   };

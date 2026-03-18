@@ -15,6 +15,12 @@ import {
 import { useAuth } from "@/components/auth-provider";
 import { convexClient } from "@/lib/convex";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
+import { toast } from "@/hooks/use-toast";
+import {
+  useTimelinePhaseDrag,
+  type PhaseLayout,
+} from "@/components/project-page/use-timeline-phase-drag";
 import {
   CheckCircle2,
   Circle,
@@ -105,6 +111,8 @@ export function TimelineSection({ project }: TimelineSectionProps) {
   const [viewAll, setViewAll] = useState(false);
   const [allPhases, setAllPhases] = useState<PhaseWithLayout[] | null>(null);
   const [loadingAll, setLoadingAll] = useState(false);
+  const [optimisticPhases, setOptimisticPhases] =
+    useState<PhaseWithLayout[] | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const projectPhases = useMemo(() => {
@@ -201,6 +209,7 @@ export function TimelineSection({ project }: TimelineSectionProps) {
   }, [viewAll, sessionToken]);
 
   const phases = viewAll ? (allPhases ?? []) : projectPhases;
+  const editablePhases = viewAll ? phases : optimisticPhases ?? phases;
 
   const hasPhases = phases.length > 0;
 
@@ -350,6 +359,196 @@ export function TimelineSection({ project }: TimelineSectionProps) {
 
     return segments;
   }, [timelineStart, totalDays, dayWidth]);
+
+  const phaseLayouts: PhaseLayout[] = useMemo(
+    () =>
+      editablePhases.map((p) => ({
+        id: `${p.phase.order}`,
+        row: p.row,
+        startDate: p.startDate,
+        endDate: p.endDate,
+      })),
+    [editablePhases],
+  );
+
+  const { dragState, beginPhaseDrag, getPhasePreview } = useTimelinePhaseDrag({
+    dayWidth,
+    phases: phaseLayouts,
+    onClick: (phaseId) => {
+      const found = editablePhases.find(
+        (p) => `${p.phase.order}` === phaseId,
+      );
+      if (found) setSelectedPhase(found);
+    },
+    onDrop: async ({
+      movedPhaseId,
+      mode,
+      newStartDate,
+      newEndDate,
+      rowPhasesSnapshot,
+    }) => {
+      if (viewAll) return;
+
+      const movedOrder = Number(movedPhaseId);
+      if (Number.isNaN(movedOrder)) return;
+
+      const rowCopy = rowPhasesSnapshot
+        .map((p) => ({
+          ...p,
+          startDate: new Date(p.startDate),
+          endDate: new Date(p.endDate),
+        }))
+        .sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
+
+      const idx = rowCopy.findIndex((p) => p.id === movedPhaseId);
+      if (idx === -1) return;
+
+      rowCopy[idx].startDate = new Date(newStartDate);
+      rowCopy[idx].endDate = new Date(newEndDate);
+
+      rowCopy.sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
+
+      const dayMs = 86_400_000;
+
+      const isAnchored = (phase: PhaseWithLayout) =>
+        (phase.phase as any).anchored === true;
+
+      // Forward cascade: nudge later phases forward to resolve overlaps
+      for (let i = 0; i < rowCopy.length - 1; i++) {
+        const current = rowCopy[i];
+        const next = rowCopy[i + 1];
+
+        const currentEndMs = current.endDate.getTime();
+        const nextStartMs = next.startDate.getTime();
+
+        if (currentEndMs >= nextStartMs) {
+          const originalNext = editablePhases.find(
+            (p) => `${p.phase.order}` === next.id,
+          );
+          if (originalNext && isAnchored(originalNext)) {
+            continue;
+          }
+
+          const durationDays =
+            Math.max(
+              1,
+              Math.round(
+                (next.endDate.getTime() - next.startDate.getTime()) / dayMs,
+              ) + 1,
+            );
+
+          const overlapDays =
+            Math.floor((currentEndMs - nextStartMs) / dayMs) + 1;
+          const shiftDays = Math.max(1, overlapDays);
+
+          next.startDate = new Date(next.startDate);
+          next.startDate.setDate(next.startDate.getDate() + shiftDays);
+          next.endDate = new Date(next.startDate);
+          next.endDate.setDate(next.endDate.getDate() + durationDays - 1);
+        }
+      }
+
+      // Backward cascade: nudge previous phases backward if needed
+      for (let i = rowCopy.length - 1; i > 0; i--) {
+        const current = rowCopy[i];
+        const prev = rowCopy[i - 1];
+
+        const prevEndMs = prev.endDate.getTime();
+        const currentStartMs = current.startDate.getTime();
+
+        if (prevEndMs >= currentStartMs) {
+          const originalPrev = editablePhases.find(
+            (p) => `${p.phase.order}` === prev.id,
+          );
+          if (originalPrev && isAnchored(originalPrev)) {
+            continue;
+          }
+
+          const durationDays =
+            Math.max(
+              1,
+              Math.round(
+                (prev.endDate.getTime() - prev.startDate.getTime()) / dayMs,
+              ) + 1,
+            );
+
+          const overlapDays =
+            Math.floor((prevEndMs - currentStartMs) / dayMs) + 1;
+          const shiftDays = Math.max(1, overlapDays);
+
+          prev.endDate = new Date(prev.endDate);
+          prev.endDate.setDate(prev.endDate.getDate() - shiftDays);
+          prev.startDate = new Date(prev.endDate);
+          prev.startDate.setDate(prev.startDate.getDate() - durationDays + 1);
+        }
+      }
+
+      const updatedPhases: PhaseWithLayout[] = editablePhases.map((p) => {
+        const match = rowCopy.find((rp) => rp.id === `${p.phase.order}`);
+        if (!match) return p;
+        return {
+          ...p,
+          startDate: new Date(match.startDate),
+          endDate: new Date(match.endDate),
+        };
+      });
+
+      setOptimisticPhases(updatedPhases);
+
+      if (!sessionToken || !convexClient) return;
+
+      let parsed: Project | null = null;
+      try {
+        parsed = project.data
+          ? (JSON.parse(project.data) as Project)
+          : null;
+      } catch {
+        toast({
+          variant: "destructive",
+          title: "Failed to update phase dates.",
+        });
+        setOptimisticPhases(null);
+        return;
+      }
+
+      if (!parsed) {
+        setOptimisticPhases(null);
+        return;
+      }
+
+      const newWbs = parsed.project_wbs.map((phase) => {
+        const match = updatedPhases.find(
+          (p) => p.phase.order === phase.order,
+        );
+        if (!match) return phase;
+        return {
+          ...phase,
+          start_date: match.startDate.toISOString().slice(0, 10),
+          end_date: match.endDate.toISOString().slice(0, 10),
+        };
+      }) as Project["project_wbs"];
+
+      const updatedProject: Project = {
+        ...parsed,
+        project_wbs: newWbs,
+      };
+      const dataStr = JSON.stringify(updatedProject);
+
+      try {
+        await convexClient.mutation(api.projects.update, {
+          token: sessionToken,
+          projectId: project._id as Id<"projects">,
+          data: dataStr,
+        });
+      } catch {
+        setOptimisticPhases(null);
+        toast({
+          variant: "destructive",
+          title: "Failed to save phase changes.",
+        });
+      }
+    },
+  });
 
   if (!hasPhases) {
     return (
@@ -535,9 +734,15 @@ export function TimelineSection({ project }: TimelineSectionProps) {
             )}
 
             {/* Phase bars */}
-            {phases.map((p, i) => {
-              const startOffset = daysBetween(timelineStart, p.startDate);
-              const duration = daysBetween(p.startDate, p.endDate) + 1;
+            {editablePhases.map((p, i) => {
+              const phaseId = `${p.phase.order}`;
+              const preview = getPhasePreview(phaseId);
+
+              const effectiveStart = preview?.startDate ?? p.startDate;
+              const effectiveEnd = preview?.endDate ?? p.endDate;
+
+              const startOffset = daysBetween(timelineStart, effectiveStart);
+              const duration = daysBetween(effectiveStart, effectiveEnd) + 1;
               const left = startOffset * dayWidth;
               const width = Math.max(duration * dayWidth, dayWidth);
               const top = rowOffsetBase + p.row * ROW_HEIGHT;
@@ -546,6 +751,11 @@ export function TimelineSection({ project }: TimelineSectionProps) {
               const completedTasks =
                 p.phase.tasks?.filter((t) => t.completed).length ?? 0;
               const totalTasks = p.phase.tasks?.length ?? 0;
+
+              const isDraggingThis =
+                !!dragState &&
+                dragState.hasExceededThreshold &&
+                dragState.payload.phaseId === phaseId;
 
               return (
                 <button
@@ -560,13 +770,65 @@ export function TimelineSection({ project }: TimelineSectionProps) {
                     backgroundColor: color,
                     borderColor: `${color}80`,
                   }}
+                  onMouseDown={(e) => {
+                    if (viewAll) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    beginPhaseDrag({
+                      phaseId,
+                      mode: "move",
+                      clientX: e.clientX,
+                      clientY: e.clientY,
+                    });
+                  }}
                   onClick={() => setSelectedPhase(p)}
                 >
+                  {/* Left resize handle */}
+                  {!viewAll && (
+                    <div
+                      className="absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        beginPhaseDrag({
+                          phaseId,
+                          mode: "resize-left",
+                          clientX: e.clientX,
+                          clientY: e.clientY,
+                        });
+                      }}
+                    />
+                  )}
+
+                  {/* Right resize handle */}
+                  {!viewAll && (
+                    <div
+                      className="absolute right-0 top-0 bottom-0 w-1 cursor-ew-resize"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        beginPhaseDrag({
+                          phaseId,
+                          mode: "resize-right",
+                          clientX: e.clientX,
+                          clientY: e.clientY,
+                        });
+                      }}
+                    />
+                  )}
+
                   <span className="truncate">{p.phase.name}</span>
                   {totalTasks > 0 && (
                     <span className="ml-auto shrink-0 whitespace-nowrap rounded-full bg-white/25 px-1.5 py-0.5 text-[10px] leading-tight">
                       {completedTasks}/{totalTasks}
                     </span>
+                  )}
+
+                  {isDraggingThis && (
+                    <div className="pointer-events-none absolute -top-5 left-1/2 -translate-x-1/2 rounded bg-background/90 px-2 py-0.5 text-[10px] text-foreground shadow">
+                      {formatDateShort(effectiveStart)} –{" "}
+                      {formatDateShort(effectiveEnd)}
+                    </div>
                   )}
                 </button>
               );
