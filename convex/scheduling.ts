@@ -3,6 +3,11 @@ import { v } from "convex/values";
 import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
+import type { Project } from "../lib/project-schema";
+import {
+  normalizeProjectWbsOrders,
+  remapConvexTasksForWbsChange,
+} from "./wbsPersistence";
 
 type PhaseIdString = string; // `${projectId}:${phaseOrder}`
 
@@ -36,6 +41,7 @@ interface ProjectJson {
 
 interface TaskSnapshot {
   taskOrder: number;
+  taskName?: string;
   date: string;
   time: string;
   endTime?: string;
@@ -243,6 +249,7 @@ function schedulePhaseTasks(
   for (const task of flexible) {
     snapshots.push({
       taskOrder: task.order,
+      taskName: task.name,
       date: task.date,
       time: task.time,
       endTime: task.endTime,
@@ -809,6 +816,7 @@ export const runSchedulingEngineInternal = internalMutation({
     const { projectId, phaseOrder } = parsePhaseId(args.phaseId);
     const project = await assertProjectAccess(ctx, user._id, projectId);
 
+    const previousDataJson = project.data;
     const parsed = parseProjectData(project.data);
     const phase = parsed.project_wbs.find((p) => p.order === phaseOrder);
     if (!phase) {
@@ -839,22 +847,36 @@ export const runSchedulingEngineInternal = internalMutation({
       };
     }
 
+    const phaseName = phase.name;
+
     const { updatedPhase, snapshots, changes, tier } = schedulePhaseTasks(phase);
 
     parsed.project_wbs = parsed.project_wbs.map((p) =>
       p.order === phaseOrder ? updatedPhase : p,
     );
 
+    const normalized = normalizeProjectWbsOrders(parsed as Project);
+    const snapshotPhaseOrder =
+      normalized.project_wbs.find((p) => p.name === phaseName)?.order ??
+      phaseOrder;
+
+    await remapConvexTasksForWbsChange(
+      ctx,
+      projectId,
+      previousDataJson,
+      normalized,
+    );
+
     const snapshotId = await ctx.db.insert("schedulingSnapshots", {
       userId: user._id,
       projectId,
-      phaseOrder,
+      phaseOrder: snapshotPhaseOrder,
       snapshot: snapshots,
       createdAt: Date.now(),
     });
 
     await ctx.db.patch(projectId, {
-      data: JSON.stringify(parsed),
+      data: JSON.stringify(normalized),
       updatedAt: Date.now(),
     });
 
@@ -943,20 +965,25 @@ export const undoLastSchedulingRun = internalMutation({
       throw new Error("Project not found");
     }
 
+    const previousDataJson = project.data;
     const parsed = parseProjectData(project.data);
     const phase = parsed.project_wbs.find((p) => p.order === phaseOrder);
     if (!phase) {
       throw new Error("Phase not found");
     }
 
-    const snapshotByOrder = new Map<number, TaskSnapshot>();
-    for (const snap of recent.snapshot) {
-      snapshotByOrder.set(snap.taskOrder, snap);
-    }
-
+    const consumed = new Set<number>();
     phase.tasks = phase.tasks.map((t) => {
-      const snap = snapshotByOrder.get(t.order);
-      if (!snap) return t;
+      const i = recent.snapshot.findIndex((s, idx) => {
+        if (consumed.has(idx)) return false;
+        if (s.taskName != null && s.taskName.length > 0) {
+          return s.taskName === t.name;
+        }
+        return s.taskOrder === t.order;
+      });
+      if (i < 0) return t;
+      consumed.add(i);
+      const snap = recent.snapshot[i];
       return {
         ...t,
         date: snap.date,
@@ -969,8 +996,16 @@ export const undoLastSchedulingRun = internalMutation({
       p.order === phaseOrder ? phase : p,
     );
 
+    const normalizedUndo = normalizeProjectWbsOrders(parsed as Project);
+    await remapConvexTasksForWbsChange(
+      ctx,
+      projectId,
+      previousDataJson,
+      normalizedUndo,
+    );
+
     await ctx.db.patch(projectId, {
-      data: JSON.stringify(parsed),
+      data: JSON.stringify(normalizedUndo),
       updatedAt: Date.now(),
     });
 
@@ -1005,6 +1040,7 @@ export const runProjectSchedulingEngineInternal = internalMutation({
     const project = await ctx.db.get(args.projectId);
     if (!project) throw new Error("Project not found");
 
+    const previousDataJson = project.data;
     const parsed = parseProjectData(project.data);
     if (!Array.isArray(parsed.project_wbs)) {
       throw new Error("Invalid project WBS");
@@ -1014,21 +1050,16 @@ export const runProjectSchedulingEngineInternal = internalMutation({
     const createdAt = Date.now();
 
     const updatedPhases = [];
+    const pendingSnapshots: Array<{
+      phaseName: string;
+      snapshots: TaskSnapshot[];
+    }> = [];
     let phasesProcessed = 0;
 
     for (const phase of parsed.project_wbs) {
       const { updatedPhase, snapshots } = schedulePhaseTasks(phase);
 
-      // Save the pre-run snapshot for undo.
-      await ctx.db.insert("schedulingSnapshots", {
-        userId: user._id,
-        projectId: args.projectId,
-        phaseOrder: phase.order,
-        runId,
-        snapshot: snapshots,
-        createdAt,
-      });
-
+      pendingSnapshots.push({ phaseName: phase.name, snapshots });
       updatedPhases.push(updatedPhase);
       phasesProcessed++;
     }
@@ -1038,8 +1069,32 @@ export const runProjectSchedulingEngineInternal = internalMutation({
       project_wbs: updatedPhases,
     };
 
+    const normalizedProject = normalizeProjectWbsOrders(nextProject as Project);
+
+    for (const pending of pendingSnapshots) {
+      const np = normalizedProject.project_wbs.find(
+        (p) => p.name === pending.phaseName,
+      );
+      const phaseOrder = np?.order ?? 0;
+      await ctx.db.insert("schedulingSnapshots", {
+        userId: user._id,
+        projectId: args.projectId,
+        phaseOrder,
+        runId,
+        snapshot: pending.snapshots,
+        createdAt,
+      });
+    }
+
+    await remapConvexTasksForWbsChange(
+      ctx,
+      args.projectId,
+      previousDataJson,
+      normalizedProject,
+    );
+
     await ctx.db.patch(args.projectId, {
-      data: JSON.stringify(nextProject),
+      data: JSON.stringify(normalizedProject),
       updatedAt: Date.now(),
       needsReschedule: false,
     });

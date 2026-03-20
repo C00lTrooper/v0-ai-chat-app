@@ -72,6 +72,7 @@ export default defineSchema({
 
   tasks: defineTable({
     projectId: v.id("projects"),
+    /** WBS phase order (1+), or 0 when the task lives in `unassigned_tasks` in project JSON. */
     phaseOrder: v.number(),
     taskOrder: v.number(),
     title: v.string(),
@@ -128,6 +129,7 @@ export default defineSchema({
     snapshot: v.array(
       v.object({
         taskOrder: v.number(),
+        taskName: v.optional(v.string()),
         date: v.string(),
         time: v.string(),
         endTime: v.optional(v.string()),

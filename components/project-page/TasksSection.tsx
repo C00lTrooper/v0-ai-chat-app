@@ -7,10 +7,27 @@ import {
   Circle,
   MoreVertical,
   CalendarClock,
+  Plus,
 } from "lucide-react";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Button } from "@/components/ui/button";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Button, buttonVariants } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Dialog,
   DialogContent,
@@ -42,7 +59,9 @@ import type { Id } from "@/convex/_generated/dataModel";
 import type { CalendarEvent } from "@/lib/calendar-utils";
 import type { Project } from "@/lib/project-schema";
 import type { ProjectData } from "@/components/project-page/types";
+import { UNASSIGNED_PHASE_ORDER } from "@/lib/task-phase-date";
 import { convexClient } from "@/lib/convex";
+import { projectPrimaryButtonClassName } from "@/lib/project-primary-button";
 
 function parseISODate(s: string): Date | undefined {
   const t = s?.trim();
@@ -127,7 +146,9 @@ function ScheduleTimeSelects({
   return (
     <div className="space-y-2">
       {label ? (
-        <span className="text-xs font-medium text-muted-foreground">{label}</span>
+        <span className="text-xs font-medium text-muted-foreground">
+          {label}
+        </span>
       ) : null}
       <div className="flex min-w-0 gap-2">
         <Select
@@ -212,7 +233,10 @@ export function TasksSection({
   const [pendingTask, setPendingTask] = useState<TaskRef | null>(null);
   const [detailEvent, setDetailEvent] = useState<CalendarEvent | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
-  const [newTaskPhaseOrder, setNewTaskPhaseOrder] = useState<number | null>(null);
+  const [newTaskDialogOpen, setNewTaskDialogOpen] = useState(false);
+  const [newTaskPhaseSelect, setNewTaskPhaseSelect] = useState<string>(
+    "__none__",
+  );
   const [newTaskName, setNewTaskName] = useState("");
   const [newTaskDescription, setNewTaskDescription] = useState("");
   const [newTaskDate, setNewTaskDate] = useState("");
@@ -264,9 +288,12 @@ export function TasksSection({
     setPendingTask(null);
   };
 
-  const openNewTaskDialog = (phaseOrder: number) => {
+  const openNewTaskDialog = (phaseOrder?: number) => {
     const todayIso = new Date().toISOString().slice(0, 10);
-    setNewTaskPhaseOrder(phaseOrder);
+    setNewTaskPhaseSelect(
+      phaseOrder !== undefined ? String(phaseOrder) : "__none__",
+    );
+    setNewTaskDialogOpen(true);
     setNewTaskName("");
     setNewTaskDescription("");
     setNewTaskDate(todayIso);
@@ -276,61 +303,61 @@ export function TasksSection({
   };
 
   const closeNewTaskDialog = () => {
-    setNewTaskPhaseOrder(null);
+    setNewTaskDialogOpen(false);
     setNewTaskDatePickerOpen(false);
   };
 
   const handleCreateTask = async () => {
-    if (
-      !sessionToken ||
-      !convexClient ||
-      !parsedProject ||
-      newTaskPhaseOrder === null
-    ) {
+    if (!sessionToken || !convexClient || !parsedProject || !newTaskDialogOpen) {
       return;
     }
     const name = newTaskName.trim();
     const date = newTaskDate.trim();
     if (!name || !date) return;
+    if (
+      newTaskPhaseSelect !== "__none__" &&
+      !phases.some((p) => String(p.order) === newTaskPhaseSelect)
+    ) {
+      return;
+    }
     const startParts = parseTime24(newTaskTime.trim()) ?? { h: 9, m: 0 };
-    const timeNorm = formatTime24(
-      startParts.h,
-      snapMinuteToStep(startParts.m),
-    );
+    const timeNorm = formatTime24(startParts.h, snapMinuteToStep(startParts.m));
     const endParts = parseTime24(newTaskEndTime.trim());
     if (!endParts) return;
-    const endNorm = formatTime24(
-      endParts.h,
-      snapMinuteToStep(endParts.m),
-    );
+    const endNorm = formatTime24(endParts.h, snapMinuteToStep(endParts.m));
 
     setCreatingTask(true);
     try {
-      const updated: Project = {
-        ...parsedProject,
-        project_wbs: parsedProject.project_wbs.map((phase) => {
-          if (phase.order !== newTaskPhaseOrder) return phase;
-          const tasks = (phase.tasks ?? []).slice().sort((a, b) => a.order - b.order);
-          const nextOrder =
-            tasks.length > 0 ? tasks[tasks.length - 1]!.order + 1 : 0;
-          const nextTasks = [
-            ...tasks,
-            {
-              order: nextOrder,
-              name,
-              description: newTaskDescription.trim(),
-              date,
-              time: timeNorm,
-              endTime: endNorm,
-              completed: false,
-            },
-          ];
-          return {
-            ...phase,
-            tasks: nextTasks,
-          };
-        }) as Project["project_wbs"],
+      const newEntry = {
+        order: 0,
+        name,
+        description: newTaskDescription.trim(),
+        date,
+        time: timeNorm,
+        endTime: endNorm,
+        completed: false,
       };
+
+      const updated: Project =
+        newTaskPhaseSelect === "__none__"
+          ? {
+              ...parsedProject,
+              unassigned_tasks: [
+                ...(parsedProject.unassigned_tasks ?? []),
+                newEntry,
+              ],
+            }
+          : {
+              ...parsedProject,
+              project_wbs: parsedProject.project_wbs.map((phase) => {
+                if (phase.order !== Number(newTaskPhaseSelect)) return phase;
+                const tasks = (phase.tasks ?? []).slice();
+                return {
+                  ...phase,
+                  tasks: [...tasks, newEntry],
+                };
+              }) as Project["project_wbs"],
+            };
 
       const dataStr = JSON.stringify(updated);
       await convexClient.mutation(api.projects.update, {
@@ -356,11 +383,320 @@ export function TasksSection({
           <CheckSquare className="mb-3 size-10" />
           <p className="text-sm font-medium">No phases yet</p>
           <p className="mt-1 text-xs">
-            Start by adding phases in the Overview tab, then come back here to create tasks.
+            Start by adding phases in the Overview tab, then come back here to
+            create tasks.
           </p>
         </div>
       )}
       <div className="mt-6 space-y-6">
+        {(() => {
+          const unassigned = (parsedProject?.unassigned_tasks ?? [])
+            .slice()
+            .sort((a, b) => a.order - b.order);
+          if (unassigned.length === 0) return null;
+          const phaseKey = UNASSIGNED_PHASE_ORDER;
+          return (
+            <div
+              key="unassigned-tasks"
+              className="rounded-xl border border-dashed border-border bg-muted/10 p-4 sm:p-5"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3 text-sm font-medium text-muted-foreground">
+                <div className="flex min-w-0 items-center gap-2">
+                  <Layers className="size-4 shrink-0" />
+                  <span className="truncate text-foreground">Unassigned</span>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="default"
+                  className={projectPrimaryButtonClassName}
+                  onClick={() => openNewTaskDialog()}
+                >
+                  <Plus className="size-4" aria-hidden />
+                  Add task
+                </Button>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Tasks without a phase still appear on your calendar and can be
+                moved into a phase later.
+              </p>
+              <div className="mt-3 space-y-2 md:hidden">
+                {unassigned.map((task, taskIndex) => {
+                  const isCompleted = Boolean(
+                    (task as { completed?: boolean }).completed,
+                  );
+                  const key = `${phaseKey}:${task.order}`;
+                  const subtasksForTask = subtasksByKey.get(key) ?? [];
+                  const hasSubtasks = subtasksForTask.length > 0;
+                  const displayNum = taskIndex + 1;
+                  return (
+                    <div
+                      key={key}
+                      role="button"
+                      tabIndex={0}
+                      className="w-full min-w-0 rounded-lg border border-border/70 bg-muted/30 p-3 text-left text-sm transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      onClick={() =>
+                        handleRequestToggle({
+                          phaseOrder: phaseKey,
+                          taskOrder: task.order,
+                          taskName: task.name,
+                          completed: isCompleted,
+                        })
+                      }
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          handleRequestToggle({
+                            phaseOrder: phaseKey,
+                            taskOrder: task.order,
+                            taskName: task.name,
+                            completed: isCompleted,
+                          });
+                        }
+                      }}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex min-w-0 flex-1 items-start gap-2">
+                          {isCompleted ? (
+                            <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-500" />
+                          ) : (
+                            <Circle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <p className="break-words text-sm font-medium leading-snug">
+                              {task.name}
+                            </p>
+                            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                              <span className="inline-flex shrink-0 rounded-md bg-muted/70 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-foreground/85">
+                                #{displayNum}
+                              </span>
+                              <span className="inline-flex max-w-full shrink-0 items-center rounded-md border border-border/60 bg-background/90 px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground">
+                                {formatTaskDateLabel(task.date)}
+                              </span>
+                              <span className="inline-flex min-w-0 max-w-full items-center rounded-md border border-border/60 bg-background/90 px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground">
+                                {(task as { endTime?: string }).endTime
+                                  ? `${task.time} – ${(task as { endTime?: string }).endTime}`
+                                  : task.time}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const date = new Date(task.date + "T00:00:00");
+                            const taskWithEnd = task as {
+                              endTime?: string;
+                              description?: string;
+                            };
+                            const eventForDialog: CalendarEvent = {
+                              id: `${project._id}-${phaseKey}-${task.order}`,
+                              projectId: project._id,
+                              projectName:
+                                project.projectName || project.summaryName,
+                              phaseName: "Unassigned",
+                              taskName: task.name,
+                              taskDescription: taskWithEnd.description,
+                              date,
+                              timeStr: task.time,
+                              ...(taskWithEnd.endTime
+                                ? { endTimeStr: taskWithEnd.endTime }
+                                : {}),
+                              colorIndex: 0,
+                              completed: isCompleted,
+                              phaseOrder: phaseKey,
+                              taskOrder: task.order,
+                            };
+                            setDetailEvent(eventForDialog);
+                            setDetailOpen(true);
+                          }}
+                        >
+                          <MoreVertical className="size-4" />
+                          <span className="sr-only">
+                            View details and subtasks
+                          </span>
+                        </Button>
+                      </div>
+                      {hasSubtasks && (
+                        <div className="mt-2 space-y-1 border-t border-border/40 pt-2">
+                          {subtasksForTask.slice(0, 3).map((subtask) => (
+                            <div
+                              key={subtask._id}
+                              className="flex items-center gap-2 text-[11px] text-muted-foreground"
+                            >
+                              {subtask.completed ? (
+                                <CheckCircle2 className="size-3 text-emerald-500" />
+                              ) : (
+                                <Circle className="size-3" />
+                              )}
+                              <span
+                                className={cn(
+                                  subtask.completed &&
+                                    "line-through text-muted-foreground/70",
+                                )}
+                              >
+                                {subtask.title}
+                              </span>
+                            </div>
+                          ))}
+                          {subtasksForTask.length > 3 && (
+                            <p className="text-[11px] text-muted-foreground">
+                              +{subtasksForTask.length - 3} more subtasks
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="mt-3 hidden md:block">
+                <Table className="text-sm">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-10">Status</TableHead>
+                      <TableHead className="w-8">#</TableHead>
+                      <TableHead className="min-w-[8rem]">Task</TableHead>
+                      <TableHead className="min-w-[9rem] max-w-[11rem]">
+                        When
+                      </TableHead>
+                      <TableHead className="w-20 text-right">Details</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {unassigned.map((task, taskIndex) => {
+                      const isCompleted = Boolean(
+                        (task as { completed?: boolean }).completed,
+                      );
+                      const key = `${phaseKey}:${task.order}`;
+                      const subtasksForTask = subtasksByKey.get(key) ?? [];
+                      const displayNum = taskIndex + 1;
+                      return (
+                        <Fragment key={key}>
+                          <TableRow
+                            className="cursor-pointer hover:bg-muted/40"
+                            onClick={() =>
+                              handleRequestToggle({
+                                phaseOrder: phaseKey,
+                                taskOrder: task.order,
+                                taskName: task.name,
+                                completed: isCompleted,
+                              })
+                            }
+                          >
+                            <TableCell className="w-10 align-middle">
+                              {isCompleted ? (
+                                <CheckCircle2 className="size-4 text-emerald-500" />
+                              ) : (
+                                <Circle className="size-4 text-muted-foreground" />
+                              )}
+                            </TableCell>
+                            <TableCell className="w-8 font-medium text-muted-foreground">
+                              {displayNum}
+                            </TableCell>
+                            <TableCell className="max-w-[min(28rem,45vw)] font-medium">
+                              <span className="line-clamp-2 break-words">
+                                {task.name}
+                              </span>
+                            </TableCell>
+                            <TableCell className="align-top text-muted-foreground">
+                              <div className="flex min-w-0 flex-col gap-0.5 text-xs leading-tight">
+                                <span className="tabular-nums">
+                                  {formatTaskDateLabel(task.date)}
+                                </span>
+                                <span className="break-words text-[11px] opacity-90">
+                                  {(task as { endTime?: string }).endTime
+                                    ? `${task.time} – ${(task as { endTime?: string }).endTime}`
+                                    : task.time}
+                                </span>
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon-sm"
+                                className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const date = new Date(
+                                    task.date + "T00:00:00",
+                                  );
+                                  const taskWithEnd = task as {
+                                    endTime?: string;
+                                    description?: string;
+                                  };
+                                  const eventForDialog: CalendarEvent = {
+                                    id: `${project._id}-${phaseKey}-${task.order}`,
+                                    projectId: project._id,
+                                    projectName:
+                                      project.projectName ||
+                                      project.summaryName,
+                                    phaseName: "Unassigned",
+                                    taskName: task.name,
+                                    taskDescription: taskWithEnd.description,
+                                    date,
+                                    timeStr: task.time,
+                                    ...(taskWithEnd.endTime
+                                      ? { endTimeStr: taskWithEnd.endTime }
+                                      : {}),
+                                    colorIndex: 0,
+                                    completed: isCompleted,
+                                    phaseOrder: phaseKey,
+                                    taskOrder: task.order,
+                                  };
+                                  setDetailEvent(eventForDialog);
+                                  setDetailOpen(true);
+                                }}
+                              >
+                                <MoreVertical className="size-4" />
+                                <span className="sr-only">
+                                  View details and subtasks
+                                </span>
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                          {subtasksForTask.length > 0 && (
+                            <TableRow className="bg-muted/30">
+                              <TableCell colSpan={5} className="align-top">
+                                <div className="pl-8 space-y-1">
+                                  {subtasksForTask.map((subtask) => (
+                                    <div
+                                      key={subtask._id}
+                                      className="flex items-center gap-2 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/70"
+                                    >
+                                      {subtask.completed ? (
+                                        <CheckCircle2 className="size-3 text-emerald-500" />
+                                      ) : (
+                                        <Circle className="size-3" />
+                                      )}
+                                      <span
+                                        className={cn(
+                                          subtask.completed &&
+                                            "line-through text-muted-foreground/70",
+                                        )}
+                                      >
+                                        {subtask.title}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </Fragment>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          );
+        })()}
         {phases.map((phase, phaseIndex) => {
           const tasks = (phase.tasks ?? [])
             .slice()
@@ -370,19 +706,20 @@ export function TasksSection({
               key={phaseIndex}
               className="rounded-xl border border-border bg-card p-4 sm:p-5"
             >
-              <div className="flex items-center justify-between gap-2 text-sm font-medium text-muted-foreground">
-                <div className="flex items-center gap-2">
-                  <Layers className="size-4" />
-                  {phase.name}
+              <div className="flex flex-wrap items-center justify-between gap-3 text-sm font-medium text-muted-foreground">
+                <div className="flex min-w-0 items-center gap-2">
+                  <Layers className="size-4 shrink-0" />
+                  <span className="truncate text-foreground">{phase.name}</span>
                 </div>
                 <Button
                   type="button"
-                  size="xs"
-                  variant="outline"
-                  className="text-[11px] px-2 py-1"
+                  size="sm"
+                  variant="default"
+                  className={projectPrimaryButtonClassName}
                   onClick={() => openNewTaskDialog(phase.order)}
                 >
-                  + Add task
+                  <Plus className="size-4" aria-hidden />
+                  Add task
                 </Button>
               </div>
               {phase.description ? (
@@ -395,17 +732,20 @@ export function TasksSection({
                 {tasks.length === 0 ? (
                   <p className="rounded-lg border border-dashed border-border/60 bg-muted/20 px-3 py-6 text-center text-xs text-muted-foreground">
                     No tasks in this phase yet. Tap{" "}
-                    <span className="font-medium text-foreground">+ Add task</span>{" "}
+                    <span className="font-medium text-foreground">
+                      + Add task
+                    </span>{" "}
                     above.
                   </p>
                 ) : null}
-                {tasks.map((task) => {
+                {tasks.map((task, taskIndex) => {
                   const isCompleted = Boolean(
                     (task as { completed?: boolean }).completed,
                   );
                   const key = `${phase.order}:${task.order}`;
                   const subtasksForTask = subtasksByKey.get(key) ?? [];
                   const hasSubtasks = subtasksForTask.length > 0;
+                  const displayNum = taskIndex + 1;
 
                   return (
                     <div
@@ -446,7 +786,7 @@ export function TasksSection({
                             </p>
                             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                               <span className="inline-flex shrink-0 rounded-md bg-muted/70 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-foreground/85">
-                                #{task.order + 1}
+                                #{displayNum}
                               </span>
                               <span className="inline-flex max-w-full shrink-0 items-center rounded-md border border-border/60 bg-background/90 px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground">
                                 {formatTaskDateLabel(task.date)}
@@ -538,145 +878,153 @@ export function TasksSection({
                 {tasks.length === 0 ? (
                   <p className="rounded-lg border border-dashed border-border/60 bg-muted/20 px-3 py-8 text-center text-sm text-muted-foreground">
                     No tasks in this phase yet. Use{" "}
-                    <span className="font-medium text-foreground">+ Add task</span>{" "}
+                    <span className="font-medium text-foreground">
+                      + Add task
+                    </span>{" "}
                     to create one.
                   </p>
                 ) : (
-                <Table className="text-sm">
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-10">Status</TableHead>
-                      <TableHead className="w-8">#</TableHead>
-                      <TableHead className="min-w-[8rem]">Task</TableHead>
-                      <TableHead className="min-w-[9rem] max-w-[11rem]">
-                        When
-                      </TableHead>
-                      <TableHead className="w-20 text-right">Details</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {tasks.map((task) => {
-                      const isCompleted = Boolean(
-                        (task as { completed?: boolean }).completed,
-                      );
-                      const key = `${phase.order}:${task.order}`;
-                      const subtasksForTask = subtasksByKey.get(key) ?? [];
+                  <Table className="text-sm">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-10">Status</TableHead>
+                        <TableHead className="w-8">#</TableHead>
+                        <TableHead className="min-w-[8rem]">Task</TableHead>
+                        <TableHead className="min-w-[9rem] max-w-[11rem]">
+                          When
+                        </TableHead>
+                        <TableHead className="w-20 text-right">
+                          Details
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {tasks.map((task, taskIndex) => {
+                        const isCompleted = Boolean(
+                          (task as { completed?: boolean }).completed,
+                        );
+                        const key = `${phase.order}:${task.order}`;
+                        const subtasksForTask = subtasksByKey.get(key) ?? [];
+                        const displayNum = taskIndex + 1;
 
-                      return (
-                        <Fragment key={key}>
-                          <TableRow
-                            className="cursor-pointer hover:bg-muted/40"
-                            onClick={() =>
-                              handleRequestToggle({
-                                phaseOrder: phase.order,
-                                taskOrder: task.order,
-                                taskName: task.name,
-                                completed: isCompleted,
-                              })
-                            }
-                          >
-                            <TableCell className="w-10 align-middle">
-                              {isCompleted ? (
-                                <CheckCircle2 className="size-4 text-emerald-500" />
-                              ) : (
-                                <Circle className="size-4 text-muted-foreground" />
-                              )}
-                            </TableCell>
-                            <TableCell className="w-8 font-medium text-muted-foreground">
-                              {task.order + 1}
-                            </TableCell>
-                            <TableCell className="max-w-[min(28rem,45vw)] font-medium">
-                              <span className="line-clamp-2 break-words">
-                                {task.name}
-                              </span>
-                            </TableCell>
-                            <TableCell className="align-top text-muted-foreground">
-                              <div className="flex min-w-0 flex-col gap-0.5 text-xs leading-tight">
-                                <span className="tabular-nums">
-                                  {formatTaskDateLabel(task.date)}
+                        return (
+                          <Fragment key={key}>
+                            <TableRow
+                              className="cursor-pointer hover:bg-muted/40"
+                              onClick={() =>
+                                handleRequestToggle({
+                                  phaseOrder: phase.order,
+                                  taskOrder: task.order,
+                                  taskName: task.name,
+                                  completed: isCompleted,
+                                })
+                              }
+                            >
+                              <TableCell className="w-10 align-middle">
+                                {isCompleted ? (
+                                  <CheckCircle2 className="size-4 text-emerald-500" />
+                                ) : (
+                                  <Circle className="size-4 text-muted-foreground" />
+                                )}
+                              </TableCell>
+                              <TableCell className="w-8 font-medium text-muted-foreground">
+                                {displayNum}
+                              </TableCell>
+                              <TableCell className="max-w-[min(28rem,45vw)] font-medium">
+                                <span className="line-clamp-2 break-words">
+                                  {task.name}
                                 </span>
-                                <span className="break-words text-[11px] opacity-90">
-                                  {(task as { endTime?: string }).endTime
-                                    ? `${task.time} – ${(task as { endTime?: string }).endTime}`
-                                    : task.time}
-                                </span>
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon-sm"
-                                className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  const date = new Date(task.date + "T00:00:00");
-                                  const taskWithEnd = task as {
-                                    endTime?: string;
-                                    description?: string;
-                                  };
-                                  const eventForDialog: CalendarEvent = {
-                                    id: `${project._id}-${phase.order}-${task.order}`,
-                                    projectId: project._id,
-                                    projectName:
-                                      project.projectName || project.summaryName,
-                                    phaseName: phase.name,
-                                    taskName: task.name,
-                                    taskDescription: taskWithEnd.description,
-                                    date,
-                                    timeStr: task.time,
-                                    ...(taskWithEnd.endTime
-                                      ? { endTimeStr: taskWithEnd.endTime }
-                                      : {}),
-                                    colorIndex: 0,
-                                    completed: isCompleted,
-                                    phaseOrder: phase.order,
-                                    taskOrder: task.order,
-                                  };
-                                  setDetailEvent(eventForDialog);
-                                  setDetailOpen(true);
-                                }}
-                              >
-                                <MoreVertical className="size-4" />
-                                <span className="sr-only">
-                                  View details and subtasks
-                                </span>
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                          {subtasksForTask.length > 0 && (
-                            <TableRow className="bg-muted/30">
-                              <TableCell colSpan={5} className="align-top">
-                                <div className="pl-8 space-y-1">
-                                  {subtasksForTask.map((subtask) => (
-                                    <div
-                                      key={subtask._id}
-                                      className="flex items-center gap-2 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/70"
-                                    >
-                                      {subtask.completed ? (
-                                        <CheckCircle2 className="size-3 text-emerald-500" />
-                                      ) : (
-                                        <Circle className="size-3" />
-                                      )}
-                                      <span
-                                        className={cn(
-                                          subtask.completed &&
-                                            "line-through text-muted-foreground/70",
-                                        )}
-                                      >
-                                        {subtask.title}
-                                      </span>
-                                    </div>
-                                  ))}
+                              </TableCell>
+                              <TableCell className="align-top text-muted-foreground">
+                                <div className="flex min-w-0 flex-col gap-0.5 text-xs leading-tight">
+                                  <span className="tabular-nums">
+                                    {formatTaskDateLabel(task.date)}
+                                  </span>
+                                  <span className="break-words text-[11px] opacity-90">
+                                    {(task as { endTime?: string }).endTime
+                                      ? `${task.time} – ${(task as { endTime?: string }).endTime}`
+                                      : task.time}
+                                  </span>
                                 </div>
                               </TableCell>
+                              <TableCell className="text-right">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const date = new Date(
+                                      task.date + "T00:00:00",
+                                    );
+                                    const taskWithEnd = task as {
+                                      endTime?: string;
+                                      description?: string;
+                                    };
+                                    const eventForDialog: CalendarEvent = {
+                                      id: `${project._id}-${phase.order}-${task.order}`,
+                                      projectId: project._id,
+                                      projectName:
+                                        project.projectName ||
+                                        project.summaryName,
+                                      phaseName: phase.name,
+                                      taskName: task.name,
+                                      taskDescription: taskWithEnd.description,
+                                      date,
+                                      timeStr: task.time,
+                                      ...(taskWithEnd.endTime
+                                        ? { endTimeStr: taskWithEnd.endTime }
+                                        : {}),
+                                      colorIndex: 0,
+                                      completed: isCompleted,
+                                      phaseOrder: phase.order,
+                                      taskOrder: task.order,
+                                    };
+                                    setDetailEvent(eventForDialog);
+                                    setDetailOpen(true);
+                                  }}
+                                >
+                                  <MoreVertical className="size-4" />
+                                  <span className="sr-only">
+                                    View details and subtasks
+                                  </span>
+                                </Button>
+                              </TableCell>
                             </TableRow>
-                          )}
-                        </Fragment>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
+                            {subtasksForTask.length > 0 && (
+                              <TableRow className="bg-muted/30">
+                                <TableCell colSpan={5} className="align-top">
+                                  <div className="pl-8 space-y-1">
+                                    {subtasksForTask.map((subtask) => (
+                                      <div
+                                        key={subtask._id}
+                                        className="flex items-center gap-2 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/70"
+                                      >
+                                        {subtask.completed ? (
+                                          <CheckCircle2 className="size-3 text-emerald-500" />
+                                        ) : (
+                                          <Circle className="size-3" />
+                                        )}
+                                        <span
+                                          className={cn(
+                                            subtask.completed &&
+                                              "line-through text-muted-foreground/70",
+                                          )}
+                                        >
+                                          {subtask.title}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            )}
+                          </Fragment>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
                 )}
               </div>
             </div>
@@ -701,7 +1049,13 @@ export function TasksSection({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={handleCancel}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleConfirm}>
+            <AlertDialogAction
+              onClick={handleConfirm}
+              className={cn(
+                buttonVariants({ variant: "default", size: "sm" }),
+                projectPrimaryButtonClassName,
+              )}
+            >
               {pendingTask?.completed ? "Mark as not done" : "Mark as done"}
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -714,7 +1068,7 @@ export function TasksSection({
       />
 
       <Dialog
-        open={newTaskPhaseOrder !== null}
+        open={newTaskDialogOpen}
         onOpenChange={(open) => {
           if (!open) closeNewTaskDialog();
         }}
@@ -734,6 +1088,27 @@ export function TasksSection({
           </DialogHeader>
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-5">
             <div className="space-y-5">
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-muted-foreground">
+                  Phase
+                </label>
+                <Select
+                  value={newTaskPhaseSelect}
+                  onValueChange={setNewTaskPhaseSelect}
+                >
+                  <SelectTrigger className="h-10 bg-background">
+                    <SelectValue placeholder="Choose phase" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">No phase</SelectItem>
+                    {phases.map((p) => (
+                      <SelectItem key={p.order} value={String(p.order)}>
+                        {p.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="space-y-2">
                 <label className="text-xs font-medium text-muted-foreground">
                   Title
@@ -836,7 +1211,14 @@ export function TasksSection({
             >
               Cancel
             </Button>
-            <Button onClick={handleCreateTask} disabled={creatingTask}>
+            <Button
+              type="button"
+              variant="default"
+              size="sm"
+              className={projectPrimaryButtonClassName}
+              onClick={handleCreateTask}
+              disabled={creatingTask}
+            >
               {creatingTask ? "Creating…" : "Create task"}
             </Button>
           </DialogFooter>
@@ -845,4 +1227,3 @@ export function TasksSection({
     </div>
   );
 }
-

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { Project } from "@/lib/project-schema";
+import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import {
@@ -15,6 +16,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { CheckCircle2, Circle } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { projectPrimaryButtonClassName } from "@/lib/project-primary-button";
 
 type ProjectWbsProps = {
   project: Project;
@@ -78,8 +81,11 @@ export function ProjectWbs({ project }: ProjectWbsProps) {
 
               <Table>
                 <TableBody>
-                  {phase.tasks?.map((task) => {
-                    const label = `${phaseIndex + 1}.${task.order}`;
+                  {(phase.tasks ?? [])
+                    .slice()
+                    .sort((a, b) => a.order - b.order)
+                    .map((task, taskIndex) => {
+                    const label = `${phaseIndex + 1}.${taskIndex + 1}`;
                     const id = makeTaskId(phaseIndex, task.order);
                     const isCompleted =
                       !!completed[id] ||
@@ -137,10 +143,14 @@ export function ProjectWbs({ project }: ProjectWbsProps) {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={handleCancel}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction onClick={handleConfirm}>
+            <AlertDialogCancel onClick={handleCancel}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirm}
+              className={cn(
+                buttonVariants({ variant: "default", size: "sm" }),
+                projectPrimaryButtonClassName,
+              )}
+            >
               Mark as done
             </AlertDialogAction>
           </AlertDialogFooter>

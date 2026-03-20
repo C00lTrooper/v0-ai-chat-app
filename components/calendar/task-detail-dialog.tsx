@@ -22,7 +22,18 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { projectPrimaryButtonClassName } from "@/lib/project-primary-button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Spinner } from "@/components/ui/spinner";
@@ -34,7 +45,15 @@ import {
   normalizeTimeString,
   parseTimeToHour,
   dateKey,
+  parseYmdLocal,
 } from "@/lib/calendar-utils";
+import type { Project } from "@/lib/project-schema";
+import {
+  UNASSIGNED_PHASE_ORDER,
+  isTaskDateWithinPhase,
+  phasesContainingTaskDate,
+} from "@/lib/task-phase-date";
+import { TaskPhaseDateConflictDialog } from "@/components/calendar/task-phase-date-conflict-dialog";
 import { Calendar } from "@/components/ui/calendar";
 import {
   Popover,
@@ -67,7 +86,22 @@ export function TaskDetailDialog({
   const [taskDate, setTaskDate] = useState(
     event ? dateKey(event.date) : dateKey(new Date()),
   );
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [isUpdatingDate, setIsUpdatingDate] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [isDeletingTask, setIsDeletingTask] = useState(false);
+  const [phaseConflictOpen, setPhaseConflictOpen] = useState(false);
+  const [pendingConflictYmd, setPendingConflictYmd] = useState<string | null>(
+    null,
+  );
+  const [phaseConflictBusy, setPhaseConflictBusy] = useState(false);
+
+  const projectDoc = useQuery(
+    api.projects.getById,
+    sessionToken && event
+      ? { token: sessionToken, projectId: event.projectId as Id<"projects"> }
+      : "skip",
+  );
 
   const ensureTask = useMutation(api.tasks.ensureTaskForProjectWbsTask);
   const createSubtasks = useMutation(api.tasks.createSubtasks);
@@ -76,10 +110,14 @@ export function TaskDetailDialog({
   const updateTaskTime = useMutation(api.aiTools.updateTaskTime);
   const updateTaskStatus = useMutation(api.aiTools.updateTaskStatus);
   const updateTaskDueDate = useMutation(api.aiTools.updateTaskDueDate);
+  const relocateProjectWbsTask = useMutation(api.aiTools.relocateProjectWbsTask);
+  const deleteProjectWbsTask = useMutation(api.aiTools.deleteProjectWbsTask);
 
   const subtasks = useQuery(
     api.tasks.listSubtasks,
-    sessionToken && taskId ? { token: sessionToken, taskId } : "skip",
+    sessionToken && taskId && !isDeletingTask
+      ? { token: sessionToken, taskId }
+      : "skip",
   );
 
   useEffect(() => {
@@ -125,12 +163,43 @@ export function TaskDetailDialog({
     }
   }, [event]);
 
+  useEffect(() => {
+    if (!open) {
+      setDatePickerOpen(false);
+      setDeleteConfirmOpen(false);
+    }
+  }, [open]);
+
   const color = useMemo(
     () => (event ? PROJECT_COLORS[event.colorIndex] : PROJECT_COLORS[0]),
     [event],
   );
 
   if (!event) return null;
+
+  const handleDeleteTask = async () => {
+    if (!sessionToken || !event || isDeletingTask) return;
+    setIsDeletingTask(true);
+    try {
+      await deleteProjectWbsTask({
+        token: sessionToken,
+        projectId: event.projectId as Id<"projects">,
+        phaseOrder: event.phaseOrder,
+        taskOrder: event.taskOrder,
+      });
+      setTaskId(null);
+      toast({ title: "Task deleted." });
+      setDeleteConfirmOpen(false);
+      onOpenChange(false);
+    } catch {
+      toast({
+        variant: "destructive",
+        title: "Failed to delete task.",
+      });
+    } finally {
+      setIsDeletingTask(false);
+    }
+  };
 
   const handleMarkTaskDone = async () => {
     if (!sessionToken || isUpdatingStatus) return;
@@ -255,12 +324,109 @@ export function TaskDetailDialog({
       setTaskDate(newDate);
       toast({ title: "Task date updated." });
     } catch {
+      if (event) setTaskDate(dateKey(event.date));
       toast({
         variant: "destructive",
         title: "Failed to update task date.",
       });
     } finally {
       setIsUpdatingDate(false);
+    }
+  };
+
+  const considerDateChange = async (ymd: string) => {
+    if (!sessionToken || !event) return;
+
+    const assignedToPhase = event.phaseOrder >= 1;
+    if (!assignedToPhase) {
+      await handleUpdateDate(ymd);
+      return;
+    }
+
+    let parsed: Project | null = null;
+    if (projectDoc?.data) {
+      try {
+        parsed = JSON.parse(projectDoc.data) as Project;
+      } catch {
+        parsed = null;
+      }
+    }
+
+    const phase = parsed?.project_wbs?.find(
+      (p) => p.order === event.phaseOrder,
+    );
+    if (!phase) {
+      await handleUpdateDate(ymd);
+      return;
+    }
+
+    if (isTaskDateWithinPhase(ymd, phase)) {
+      await handleUpdateDate(ymd);
+      return;
+    }
+
+    setPendingConflictYmd(ymd);
+    setPhaseConflictOpen(true);
+  };
+
+  const conflictMatchingPhases =
+    pendingConflictYmd && projectDoc?.data
+      ? (() => {
+          try {
+            const p = JSON.parse(projectDoc.data) as Project;
+            return phasesContainingTaskDate(
+              p.project_wbs ?? [],
+              pendingConflictYmd,
+            );
+          } catch {
+            return [];
+          }
+        })()
+      : [];
+
+  const handlePhaseConflictKeep = () => {
+    if (event) setTaskDate(dateKey(event.date));
+    setPendingConflictYmd(null);
+    setPhaseConflictOpen(false);
+  };
+
+  const runRelocate = async (
+    target:
+      | { kind: "phase"; phaseOrder: number }
+      | { kind: "unassigned" },
+  ) => {
+    if (!sessionToken || !event || !pendingConflictYmd) return;
+    setPhaseConflictBusy(true);
+    try {
+      const startNorm = normalizeTimeString(taskStartTime.trim());
+      const endNorm = taskEndTime.trim()
+        ? normalizeTimeString(taskEndTime.trim()) ?? undefined
+        : undefined;
+      await relocateProjectWbsTask({
+        token: sessionToken,
+        projectId: event.projectId as Id<"projects">,
+        fromPhaseOrder: event.phaseOrder,
+        taskOrder: event.taskOrder,
+        newDate: pendingConflictYmd,
+        ...(startNorm ? { newStartTime: startNorm } : {}),
+        ...(endNorm !== undefined ? { newEndTime: endNorm } : {}),
+        target:
+          target.kind === "phase"
+            ? { kind: "phase" as const, phaseOrder: target.phaseOrder }
+            : { kind: "unassigned" as const },
+      });
+      setTaskDate(pendingConflictYmd);
+      toast({ title: "Task schedule updated." });
+      setPhaseConflictOpen(false);
+      setPendingConflictYmd(null);
+      onOpenChange(false);
+    } catch {
+      toast({
+        variant: "destructive",
+        title: "Could not update task.",
+      });
+    } finally {
+      setPhaseConflictBusy(false);
     }
   };
 
@@ -375,39 +541,43 @@ export function TaskDetailDialog({
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <div className="flex items-center gap-3">
-              <span
-                className="mt-0.5 size-3 shrink-0 rounded-sm"
-                style={{ backgroundColor: color.hex }}
-              />
-              <div>
-                <DialogTitle className="text-base">
-                  {event.taskName}
-                </DialogTitle>
-                <DialogDescription className="mt-0.5">
-                  {event.projectName}
-                </DialogDescription>
-              </div>
-              <div className="ml-auto flex items-center gap-2">
-                {!event.completed && (
+          <DialogHeader className="pr-12 sm:pr-14">
+            <div className="space-y-3 text-left">
+              <DialogTitle className="text-base leading-snug">
+                {event.taskName}
+              </DialogTitle>
+              <div className="flex flex-wrap items-center gap-2">
+                {!event.completed ? (
                   <Button
                     type="button"
-                    size="xs"
-                    variant="outline"
-                    className="h-7 px-2 text-[11px]"
+                    size="sm"
+                    variant="default"
+                    className={cn(projectPrimaryButtonClassName, "w-fit")}
                     onClick={handleMarkTaskDone}
                     disabled={!sessionToken || isUpdatingStatus}
                   >
+                    <CheckCircle2 className="size-4" aria-hidden />
                     Mark as done
                   </Button>
-                )}
-                {event.completed && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+                ) : (
+                  <span className="inline-flex w-fit items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
                     <CheckCircle2 className="size-3" />
                     Completed
                   </span>
                 )}
+                {projectDoc?.isOwner ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-8 w-fit gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    onClick={() => setDeleteConfirmOpen(true)}
+                    disabled={!sessionToken || isDeletingTask}
+                  >
+                    <Trash2 className="size-4" aria-hidden />
+                    Delete task
+                  </Button>
+                ) : null}
               </div>
             </div>
           </DialogHeader>
@@ -419,7 +589,7 @@ export function TaskDetailDialog({
             )}
             <div className="flex items-center gap-3 text-sm">
               <CalendarIcon className="size-4 text-muted-foreground" />
-              <Popover>
+              <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
                 <PopoverTrigger asChild>
                   <Button
                     type="button"
@@ -434,12 +604,14 @@ export function TaskDetailDialog({
                 <PopoverContent className="w-auto p-0" align="start">
                   <Calendar
                     mode="single"
-                    selected={taskDate ? new Date(taskDate) : undefined}
+                    selected={
+                      taskDate ? parseYmdLocal(taskDate) : undefined
+                    }
                     onSelect={(date) => {
                       if (!date) return;
-                      const isoDate = date.toISOString().slice(0, 10);
-                      setTaskDate(isoDate);
-                      void handleUpdateDate(isoDate);
+                      const ymd = dateKey(date);
+                      setDatePickerOpen(false);
+                      void considerDateChange(ymd);
                     }}
                     initialFocus
                   />
@@ -512,7 +684,11 @@ export function TaskDetailDialog({
             </div>
             <div className="flex items-center gap-3 text-sm">
               <Layers className="size-4 text-muted-foreground" />
-              <span>{event.phaseName}</span>
+              <span>
+                {event.phaseOrder === UNASSIGNED_PHASE_ORDER
+                  ? "Unassigned"
+                  : event.phaseName}
+              </span>
             </div>
 
             {sessionToken && taskId && (
@@ -619,6 +795,66 @@ export function TaskDetailDialog({
           </div>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this task?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes “{event.taskName}” from the project schedule. Subtasks
+              saved for this task will also be removed. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingTask}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              disabled={isDeletingTask}
+              onClick={(e) => {
+                e.preventDefault();
+                void handleDeleteTask();
+              }}
+            >
+              {isDeletingTask ? (
+                <Spinner className="size-4" />
+              ) : (
+                "Delete task"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <TaskPhaseDateConflictDialog
+        open={phaseConflictOpen}
+        onOpenChange={(o) => {
+          if (!o && !phaseConflictBusy) {
+            handlePhaseConflictKeep();
+          }
+        }}
+        taskTitle={event.taskName}
+        currentPhaseName={event.phaseName}
+        newDateLabel={
+          pendingConflictYmd
+            ? (parseYmdLocal(pendingConflictYmd)?.toLocaleDateString("en-US", {
+                weekday: "short",
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+              }) ?? pendingConflictYmd)
+            : ""
+        }
+        matchingPhases={conflictMatchingPhases.map((p) => ({
+          order: p.order,
+          name: p.name,
+          start_date: p.start_date,
+          end_date: p.end_date,
+        }))}
+        onKeepInPhase={handlePhaseConflictKeep}
+        onMoveToPhase={(phaseOrder) => runRelocate({ kind: "phase", phaseOrder })}
+        onRemoveFromPhase={() => runRelocate({ kind: "unassigned" })}
+        busy={phaseConflictBusy}
+      />
 
       <Dialog open={reviewOpen} onOpenChange={setReviewOpen}>
         <DialogContent className="max-w-md">

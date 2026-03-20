@@ -90,7 +90,11 @@ export function buildToolConfirmationText(name: string, args: Record<string, unk
     case "createTask": {
       const timePart = args.time ? ` at **${args.time}**` : "";
       const endPart = args.endTime ? ` – **${args.endTime}**` : "";
-      return `Create task **"${args.title}"** in project **${args.projectName}** (phase: ${args.phaseName}), due **${args.dueDate}**${timePart}${endPart}`;
+      const phasePart =
+        args.phaseName != null && String(args.phaseName).trim() !== ""
+          ? ` (phase: ${args.phaseName})`
+          : " (no phase)";
+      return `Create task **"${args.title}"** in project **${args.projectName}**${phasePart}, due **${args.dueDate}**${timePart}${endPart}`;
     }
     case "updateTaskStatus":
       return `Mark task **"${args.taskName}"** in project **${args.projectName}** as **${args.completed ? "complete" : "incomplete"}**`;

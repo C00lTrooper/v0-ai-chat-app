@@ -369,7 +369,6 @@ export default function ProjectsPage() {
         summaryName: name,
         objective: newProjectDescription.trim(),
         targetDate: "",
-        data: "{}",
       });
       setNewProjectOpen(false);
       setNewProjectName("");

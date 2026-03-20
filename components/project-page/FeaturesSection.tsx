@@ -17,6 +17,7 @@ import type { Project } from "@/lib/project-schema";
 import type { ProjectData } from "@/components/project-page/types";
 import { useAuth } from "@/components/auth-provider";
 import { Button } from "@/components/ui/button";
+import { projectPrimaryButtonClassName } from "@/lib/project-primary-button";
 import {
   Dialog,
   DialogContent,
@@ -93,7 +94,9 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
   const [newFeaturePhase, setNewFeaturePhase] = useState<number | null>(null);
   const [newFeatureName, setNewFeatureName] = useState("");
   const [newFeatureDescription, setNewFeatureDescription] = useState("");
-  const [taskPickerOpenFor, setTaskPickerOpenFor] = useState<string | null>(null);
+  const [taskPickerOpenFor, setTaskPickerOpenFor] = useState<string | null>(
+    null,
+  );
   const [taskSearch, setTaskSearch] = useState("");
   const [searchAllTasks, setSearchAllTasks] = useState(false);
   const [expandedTaskLists, setExpandedTaskLists] = useState<Set<string>>(
@@ -198,16 +201,16 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
 
   const editingFeature = useMemo(() => {
     if (!features || !featureToEditId) return null;
-    return (
-      features.find((f) => (f._id as string) === featureToEditId) ?? null
-    );
+    return features.find((f) => (f._id as string) === featureToEditId) ?? null;
   }, [features, featureToEditId]);
 
   const editingFeatureTasks = useMemo(() => {
     if (!allTasksForProject || !featureToEditId) return [];
     const tasks = allTasksForProject
       .filter(
-        (t) => t.featureId === featureToEditId || t.featureId === (featureToEditId as unknown),
+        (t) =>
+          t.featureId === featureToEditId ||
+          t.featureId === (featureToEditId as unknown),
       )
       .slice()
       .sort((a, b) => {
@@ -225,7 +228,12 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
     );
   }, [allTasksForProject, featureToEditId, optimisticallyHiddenTasks]);
 
-  const openEditModal = (feature: { _id: string; name: string; description: string; phaseOrder: number; }) => {
+  const openEditModal = (feature: {
+    _id: string;
+    name: string;
+    description: string;
+    phaseOrder: number;
+  }) => {
     setFeatureToEditId(feature._id);
     setEditName(feature.name);
     setEditDescription(feature.description);
@@ -262,9 +270,9 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
         <div className="mt-6 rounded-xl border border-dashed border-border bg-muted/10 px-4 py-6 text-sm text-muted-foreground">
           <p className="font-medium text-foreground">No phases yet</p>
           <p className="mt-1 text-xs">
-            Start by defining project phases in the Overview tab, or use the sidebar
-            generator to create a draft plan. Once phases exist, you&apos;ll be able
-            to organize features by phase here.
+            Start by defining project phases in the Overview tab, or use the
+            sidebar generator to create a draft plan. Once phases exist,
+            you&apos;ll be able to organize features by phase here.
           </p>
         </div>
       ) : null}
@@ -306,15 +314,16 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
                   </span>
                 </div>
                 <Button
-                  size="xs"
-                  variant="outline"
-                  className="text-[11px] px-2 py-1"
+                  type="button"
+                  size="sm"
+                  variant="default"
+                  className={projectPrimaryButtonClassName}
                   onClick={(e) => {
                     e.stopPropagation();
                     openNewFeatureModal(phase.order);
                   }}
                 >
-                  <Plus className="mr-1.5 size-3" />
+                  <Plus className="size-4" aria-hidden />
                   Add feature
                 </Button>
               </div>
@@ -373,7 +382,9 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
                                 t.featureId === (f._id as string) ||
                                 t.featureId === f._id;
                               const isUnassigned = t.featureId === null;
-                              return inSamePhase && (isLinkedToThis || isUnassigned);
+                              return (
+                                inSamePhase && (isLinkedToThis || isUnassigned)
+                              );
                             });
 
                         const filteredTasks = availableTasks.filter((t) => {
@@ -386,8 +397,9 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
                         });
 
                         const isPickerOpen = taskPickerOpenFor === f._id;
-                        const showAllTasks =
-                          expandedTaskLists.has(f._id as string);
+                        const showAllTasks = expandedTaskLists.has(
+                          f._id as string,
+                        );
                         const visibleFeatureTasks = showAllTasks
                           ? featureTasks
                           : featureTasks.slice(0, 5);
@@ -513,7 +525,9 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
                               <Popover
                                 open={isPickerOpen}
                                 onOpenChange={(open) => {
-                                  setTaskPickerOpenFor(open ? (f._id as string) : null);
+                                  setTaskPickerOpenFor(
+                                    open ? (f._id as string) : null,
+                                  );
                                   if (!open) {
                                     setTaskSearch("");
                                     setSearchAllTasks(false);
@@ -539,7 +553,9 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
                                   <Input
                                     placeholder="Search tasks..."
                                     value={taskSearch}
-                                    onChange={(e) => setTaskSearch(e.target.value)}
+                                    onChange={(e) =>
+                                      setTaskSearch(e.target.value)
+                                    }
                                     className="h-8 text-xs"
                                   />
                                   <div className="flex items-center justify-between gap-2 px-0.5 pt-1">
@@ -556,7 +572,9 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
                                         setSearchAllTasks((prev) => !prev)
                                       }
                                     >
-                                      {searchAllTasks ? "Limit to feature scope" : "Search all tasks"}
+                                      {searchAllTasks
+                                        ? "Limit to feature scope"
+                                        : "Search all tasks"}
                                     </button>
                                   </div>
                                   <div className="max-h-64 space-y-1 overflow-y-auto pt-1">
@@ -567,7 +585,8 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
                                     ) : (
                                       filteredTasks.map((task) => {
                                         const checked =
-                                          task.featureId === (f._id as string) ||
+                                          task.featureId ===
+                                            (f._id as string) ||
                                           task.featureId === f._id;
                                         return (
                                           <div
@@ -577,7 +596,10 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
                                             className="flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-xs hover:bg-muted"
                                             onClick={() => toggleTaskLink(task)}
                                             onKeyDown={(e) => {
-                                              if (e.key === "Enter" || e.key === " ") {
+                                              if (
+                                                e.key === "Enter" ||
+                                                e.key === " "
+                                              ) {
                                                 e.preventDefault();
                                                 toggleTaskLink(task);
                                               }
@@ -660,7 +682,9 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
                                         </div>
                                       </div>
                                       <Badge
-                                        variant={completed ? "outline" : "secondary"}
+                                        variant={
+                                          completed ? "outline" : "secondary"
+                                        }
                                         className="h-5 px-1.5 text-[10px]"
                                       >
                                         {completed ? "Done" : "Planned"}
@@ -695,7 +719,10 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
         })}
       </div>
 
-      <Dialog open={newFeaturePhase !== null} onOpenChange={closeNewFeatureModal}>
+      <Dialog
+        open={newFeaturePhase !== null}
+        onOpenChange={closeNewFeatureModal}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>New Feature</DialogTitle>
@@ -753,7 +780,8 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
                   onValueChange={async (v) => {
                     const next = Number(v);
                     setEditPhaseOrder(next);
-                    if (!sessionToken || !convexClient || !featureToEditId) return;
+                    if (!sessionToken || !convexClient || !featureToEditId)
+                      return;
                     await convexClient.mutation(api.features.movePhase, {
                       token: sessionToken,
                       featureId: featureToEditId as Id<"features">,
@@ -844,10 +872,15 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
                         const availableTasks = editSearchAllTasks
                           ? baseTasks
                           : baseTasks.filter((t) => {
-                              const inSamePhase = t.phaseOrder === editingFeature.phaseOrder;
-                              const isLinkedToThis = t.featureId === featureId || t.featureId === (featureId as unknown);
+                              const inSamePhase =
+                                t.phaseOrder === editingFeature.phaseOrder;
+                              const isLinkedToThis =
+                                t.featureId === featureId ||
+                                t.featureId === (featureId as unknown);
                               const isUnassigned = t.featureId === null;
-                              return inSamePhase && (isLinkedToThis || isUnassigned);
+                              return (
+                                inSamePhase && (isLinkedToThis || isUnassigned)
+                              );
                             });
 
                         const filtered = availableTasks.filter((t) => {
@@ -869,7 +902,8 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
 
                         return filtered.map((task) => {
                           const checked =
-                            task.featureId === featureId || task.featureId === (featureId as unknown);
+                            task.featureId === featureId ||
+                            task.featureId === (featureId as unknown);
                           return (
                             <div
                               key={`${task.phaseOrder}:${task.taskOrder}`}
@@ -877,7 +911,12 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
                               tabIndex={0}
                               className="flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-xs hover:bg-muted"
                               onClick={async () => {
-                                if (!sessionToken || !convexClient || !featureId) return;
+                                if (
+                                  !sessionToken ||
+                                  !convexClient ||
+                                  !featureId
+                                )
+                                  return;
                                 if (checked) {
                                   await convexClient.mutation(
                                     api.features.unlinkTaskFromFeature,
@@ -908,9 +947,14 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
                                 }
                               }}
                             >
-                              <Checkbox checked={checked} className="h-3.5 w-3.5" />
+                              <Checkbox
+                                checked={checked}
+                                className="h-3.5 w-3.5"
+                              />
                               <div className="flex flex-col">
-                                <span className="font-medium">{task.title}</span>
+                                <span className="font-medium">
+                                  {task.title}
+                                </span>
                                 <span className="text-[10px] text-muted-foreground">
                                   {task.phaseName}
                                   {task.date ? ` • ${task.date}` : null}
@@ -950,7 +994,11 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
                               >
                                 {t.completed ? "Done" : "Planned"}
                               </Badge>
-                              {t.date ? <span>Due {t.date}</span> : <span>No due date</span>}
+                              {t.date ? (
+                                <span>Due {t.date}</span>
+                              ) : (
+                                <span>No due date</span>
+                              )}
                             </div>
                           </div>
                           <button
@@ -1080,7 +1128,8 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
                 onClick={async (e) => {
                   // Keep dialog open until mutation finishes.
                   e.preventDefault();
-                  if (!featureToDelete || !sessionToken || !convexClient) return;
+                  if (!featureToDelete || !sessionToken || !convexClient)
+                    return;
                   await convexClient.mutation(api.features.deleteFeature, {
                     token: sessionToken,
                     featureId: featureToDelete.id as Id<"features">,
@@ -1107,7 +1156,8 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
                 variant="outline"
                 onClick={async (e) => {
                   e.preventDefault();
-                  if (!featureToDelete || !sessionToken || !convexClient) return;
+                  if (!featureToDelete || !sessionToken || !convexClient)
+                    return;
                   await convexClient.mutation(api.features.deleteFeature, {
                     token: sessionToken,
                     featureId: featureToDelete.id as Id<"features">,
@@ -1135,4 +1185,3 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
     </div>
   );
 }
-

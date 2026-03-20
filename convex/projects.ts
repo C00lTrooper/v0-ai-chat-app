@@ -2,6 +2,12 @@ import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import type { Project } from "../lib/project-schema";
+import { phaseScheduleFingerprint } from "../lib/wbs-order-from-dates";
+import {
+  normalizeProjectWbsOrders,
+  remapConvexTasksForWbsChange,
+} from "./wbsPersistence";
 
 async function authenticateUser(
   ctx: QueryCtx | MutationCtx,
@@ -22,6 +28,34 @@ async function authenticateUser(
   }
 
   return user;
+}
+
+/** Full JSON envelope for new projects (empty WBS until user adds phases or runs generator). */
+function buildInitialProjectData(args: {
+  projectName: string;
+  summaryName: string;
+  objective: string;
+  targetDate: string;
+}): string {
+  const name = args.projectName.trim() || "Project";
+  const summary = args.summaryName.trim() || name;
+  const objective =
+    args.objective.trim() || "Objective not specified. Update in Overview.";
+  const targetDate =
+    args.targetDate.trim() || new Date().toISOString().slice(0, 10);
+
+  return JSON.stringify({
+    project_name: name,
+    project_summary: {
+      name: summary,
+      objective,
+      duration: 0,
+      estimated_budget: 0,
+      target_date: targetDate,
+    },
+    project_wbs: [],
+    project_milestones: [],
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -185,7 +219,6 @@ export const create = mutation({
     summaryName: v.string(),
     objective: v.string(),
     targetDate: v.string(),
-    data: v.string(),
   },
   handler: async (ctx, args) => {
     const user = await authenticateUser(ctx, args.token);
@@ -201,6 +234,13 @@ export const create = mutation({
       slug = `${slug}-${now}`;
     }
 
+    const data = buildInitialProjectData({
+      projectName: args.projectName,
+      summaryName: args.summaryName,
+      objective: args.objective,
+      targetDate: args.targetDate,
+    });
+
     const projectId = await ctx.db.insert("projects", {
       ownerId: user._id,
       slug,
@@ -209,7 +249,7 @@ export const create = mutation({
       summaryName: args.summaryName,
       objective: args.objective,
       targetDate: args.targetDate,
-      data: args.data,
+      data,
       needsReschedule: false,
       createdAt: now,
       updatedAt: now,
@@ -237,18 +277,43 @@ export const update = mutation({
       throw new Error("Not found or not authorized");
     }
 
-    let oldProjectWbs: unknown = null;
-    let newProjectWbs: unknown = null;
+    let dataToWrite: string | undefined = args.data;
+    let rescheduleOldFp: string | undefined;
+    let rescheduleNewFp: string | undefined;
+
     if (args.data !== undefined) {
+      let parsedIncoming: Project | null = null;
       try {
-        oldProjectWbs = JSON.parse(project.data);
+        parsedIncoming = JSON.parse(args.data) as Project;
       } catch {
-        oldProjectWbs = null;
+        parsedIncoming = null;
       }
+
+      let oldParsed: Project | null = null;
       try {
-        newProjectWbs = JSON.parse(args.data);
+        oldParsed = JSON.parse(project.data) as Project;
       } catch {
-        newProjectWbs = null;
+        oldParsed = null;
+      }
+
+      if (
+        parsedIncoming &&
+        Array.isArray(parsedIncoming.project_wbs) &&
+        parsedIncoming.project_wbs.length > 0
+      ) {
+        const normalized = normalizeProjectWbsOrders(parsedIncoming);
+        dataToWrite = JSON.stringify(normalized);
+
+        await remapConvexTasksForWbsChange(
+          ctx,
+          args.projectId,
+          project.data,
+          normalized,
+        );
+
+        const oldPhases = oldParsed?.project_wbs ?? [];
+        rescheduleOldFp = phaseScheduleFingerprint(oldPhases);
+        rescheduleNewFp = phaseScheduleFingerprint(normalized.project_wbs);
       }
     }
 
@@ -261,46 +326,19 @@ export const update = mutation({
       }),
       ...(args.objective !== undefined && { objective: args.objective }),
       ...(args.targetDate !== undefined && { targetDate: args.targetDate }),
-      ...(args.data !== undefined && { data: args.data }),
+      ...(dataToWrite !== undefined && { data: dataToWrite }),
       updatedAt: Date.now(),
     });
 
-    // If any phase start/end dates changed, mark the project as out of sync.
-    if (args.data !== undefined && oldProjectWbs && newProjectWbs) {
-      type WbsPhaseLite = { order: number; start_date: string; end_date: string };
-      const oldPhasesArr = (oldProjectWbs as { project_wbs?: WbsPhaseLite[] })
-        .project_wbs ?? [];
-      const newPhasesArr = (newProjectWbs as { project_wbs?: WbsPhaseLite[] })
-        .project_wbs ?? [];
-
-      const oldByOrder = new Map<number, WbsPhaseLite>();
-      for (const p of oldPhasesArr) oldByOrder.set(p.order, p);
-      const newByOrder = new Map<number, WbsPhaseLite>();
-      for (const p of newPhasesArr) newByOrder.set(p.order, p);
-
-      const changedPhaseOrders: number[] = [];
-      const allOrders = new Set<number>([
-        ...Array.from(oldByOrder.keys()),
-        ...Array.from(newByOrder.keys()),
-      ]);
-      for (const order of allOrders) {
-        const o = oldByOrder.get(order);
-        const n = newByOrder.get(order);
-        if (!o || !n) {
-          changedPhaseOrders.push(order);
-          continue;
-        }
-        if (o.start_date !== n.start_date || o.end_date !== n.end_date) {
-          changedPhaseOrders.push(order);
-        }
-      }
-
-      if (changedPhaseOrders.length > 0) {
-        await ctx.db.patch(args.projectId, {
-          needsReschedule: true,
-          updatedAt: Date.now(),
-        });
-      }
+    if (
+      rescheduleOldFp !== undefined &&
+      rescheduleNewFp !== undefined &&
+      rescheduleOldFp !== rescheduleNewFp
+    ) {
+      await ctx.db.patch(args.projectId, {
+        needsReschedule: true,
+        updatedAt: Date.now(),
+      });
     }
 
     return { ok: true as const };

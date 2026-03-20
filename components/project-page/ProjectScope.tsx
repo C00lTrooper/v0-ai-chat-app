@@ -1,18 +1,8 @@
 "use client";
 
 import type { Project } from "@/lib/project-schema";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableRow,
-} from "@/components/ui/table";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 
 type ProjectScopeProps = {
   project: Project;
@@ -51,9 +41,7 @@ export function ProjectScope({ project }: ProjectScopeProps) {
                   <TableCell className="w-32 font-medium text-muted-foreground">
                     Phase {feature.id}
                   </TableCell>
-                  <TableCell className="font-medium">
-                    {feature.name}
-                  </TableCell>
+                  <TableCell className="font-medium">{feature.name}</TableCell>
                   <TableCell className="text-muted-foreground">
                     {feature.description}
                   </TableCell>
@@ -66,4 +54,3 @@ export function ProjectScope({ project }: ProjectScopeProps) {
     </section>
   );
 }
-

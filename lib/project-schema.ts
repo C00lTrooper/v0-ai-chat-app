@@ -1,5 +1,15 @@
 import { z } from "zod"
 
+const wbsTaskSchema = z.object({
+  order: z.number().int().nonnegative(),
+  name: z.string().min(1),
+  description: z.string().optional().default(""),
+  date: z.string().min(1),
+  time: z.string().min(1),
+  endTime: z.string().optional(),
+  completed: z.boolean().optional().default(false),
+})
+
 export const ProjectSchema = z.object({
   project_name: z.string().min(1, "project_name is required"),
   project_summary: z.object({
@@ -17,20 +27,12 @@ export const ProjectSchema = z.object({
         description: z.string().min(1),
         start_date: z.string().min(1),
         end_date: z.string().min(1),
-        tasks: z.array(
-          z.object({
-            order: z.number().int().nonnegative(),
-            name: z.string().min(1),
-            description: z.string().optional().default(""),
-            date: z.string().min(1),
-            time: z.string().min(1),
-            endTime: z.string().optional(),
-            completed: z.boolean().optional().default(false),
-          }),
-        ),
+        tasks: z.array(wbsTaskSchema),
       })
     )
     .nonempty("project_wbs must contain at least one item"),
+  /** Tasks not tied to a phase; Convex rows use phaseOrder 0 + taskOrder. */
+  unassigned_tasks: z.array(wbsTaskSchema).optional().default([]),
   project_milestones: z
     .array(
       z.object({

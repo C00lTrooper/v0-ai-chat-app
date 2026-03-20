@@ -27,15 +27,32 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { projectPrimaryButtonClassName } from "@/lib/project-primary-button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/components/auth-provider";
 import { api } from "@/convex/_generated/api";
 import { toast } from "@/hooks/use-toast";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { Project } from "@/lib/project-schema";
+import { assignWbsOrdersFromDates } from "@/lib/wbs-order-from-dates";
 import type { ProjectData } from "@/components/project-page/types";
 
 type Phase = Project["project_wbs"][number];
+
+/** New projects use `data: "{}"`; that parses to `{}`, which is truthy but not a full project envelope. */
+function isIncompleteProjectData(p: Project | null): boolean {
+  if (p == null) return true;
+  const s = p.project_summary;
+  return (
+    typeof p.project_name !== "string" ||
+    !p.project_name.trim() ||
+    s == null ||
+    typeof s !== "object" ||
+    typeof s.name !== "string" ||
+    !String(s.name).trim() ||
+    typeof s.objective !== "string"
+  );
+}
 
 type OverviewSectionProps = {
   project: ProjectData;
@@ -149,27 +166,30 @@ export function OverviewSection({
     if (!sessionToken || updatingFeatures) return;
     setUpdatingFeatures(true);
     try {
-      const normalizedWbs = nextFeatures.map((phase, index) => ({
-        ...phase,
-        order: index,
-      })) as Project["project_wbs"];
+      const normalizedWbs = assignWbsOrdersFromDates(
+        nextFeatures as Project["project_wbs"],
+      );
 
-      const baseProject: Project =
-        parsedProject ??
-        ({
-          project_name: project.projectName || project.summaryName || "Project",
-          project_summary: {
-            name: project.summaryName || project.projectName || "Project",
-            objective:
-              project.objective || "Objective not specified. Update in Overview.",
-            duration: 0,
-            estimated_budget: 0,
-            target_date:
-              project.targetDate || new Date().toISOString().slice(0, 10),
-          },
-          project_wbs: normalizedWbs,
-          project_milestones: [],
-        } as Project);
+      const baseProject: Project = isIncompleteProjectData(parsedProject)
+        ? ({
+            project_name:
+              project.projectName || project.summaryName || "Project",
+            project_summary: {
+              name: project.summaryName || project.projectName || "Project",
+              objective:
+                project.objective ||
+                "Objective not specified. Update in Overview.",
+              duration: 0,
+              estimated_budget: 0,
+              target_date:
+                project.targetDate || new Date().toISOString().slice(0, 10),
+            },
+            project_wbs: normalizedWbs,
+            project_milestones: Array.isArray(parsedProject?.project_milestones)
+              ? parsedProject.project_milestones
+              : [],
+          } as Project)
+        : parsedProject!;
 
       const updatedProject: Project = {
         ...baseProject,
@@ -269,7 +289,7 @@ export function OverviewSection({
     deletePhaseIndex != null ? features[deletePhaseIndex] : null;
 
   const addFeature = async () => {
-    if (!parsedProject) return;
+    if (!sessionToken || updatingFeatures) return;
     const today = new Date();
     const end = new Date(today);
     end.setDate(end.getDate() + 7);
@@ -430,13 +450,14 @@ export function OverviewSection({
             </div>
             {canEditFeatures && (
               <Button
-                variant="outline"
+                type="button"
+                variant="default"
                 size="sm"
-                className="h-7 px-2.5 text-xs"
+                className={projectPrimaryButtonClassName}
                 onClick={addFeature}
                 disabled={updatingFeatures}
               >
-                <Plus className="mr-1 size-3" />
+                <Plus className="size-4" aria-hidden />
                 Add phase
               </Button>
             )}
@@ -446,7 +467,8 @@ export function OverviewSection({
             <div className="mt-3 rounded-lg border border-dashed border-border bg-muted/10 px-4 py-6 text-sm text-muted-foreground">
               <p className="font-medium text-foreground">No phases yet</p>
               <p className="mt-1 text-xs">
-                Start by adding phases here, or use the sidebar generator to create a draft plan.
+                Start by adding phases here, or use the sidebar generator to
+                create a draft plan.
               </p>
             </div>
           ) : (
@@ -460,467 +482,482 @@ export function OverviewSection({
                       key={index}
                       className="rounded-lg border border-border/60 bg-muted/20 p-3 text-sm"
                     >
-                    <p className="text-[11px] font-medium text-muted-foreground">
-                      Phase {index + 1}
-                    </p>
-                    {canEditFeatures && isEditing ? (
-                      <div className="mt-2 space-y-2">
-                        <Input
-                          value={featureDraftName}
-                          onChange={(e) =>
-                            setFeatureDraftName(e.target.value)
-                          }
-                          placeholder="Phase name"
-                          className="h-8 text-sm"
-                          disabled={updatingFeatures}
-                        />
-                        <textarea
-                          className="w-full resize-none rounded-md border border-input bg-background px-2 py-1 text-xs text-foreground shadow-sm outline-none ring-offset-background placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                          value={featureDraftDescription}
-                          onChange={(e) =>
-                            setFeatureDraftDescription(e.target.value)
-                          }
-                          rows={3}
-                          disabled={updatingFeatures}
-                        />
-                        <div className="grid gap-2 text-xs text-muted-foreground">
-                          <div className="flex flex-col gap-1">
-                            <span>Start date</span>
-                            <Popover
-                              open={phaseStartPickerOpen}
-                              onOpenChange={(open) => {
-                                setPhaseStartPickerOpen(open);
-                                if (open) setPhaseEndPickerOpen(false);
-                              }}
-                            >
-                              <PopoverTrigger asChild>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  className="h-8 w-full justify-start text-left font-normal text-xs"
-                                  disabled={updatingFeatures}
+                      <p className="text-[11px] font-medium text-muted-foreground">
+                        Phase {index + 1}
+                      </p>
+                      {canEditFeatures && isEditing ? (
+                        <div className="mt-2 space-y-2">
+                          <Input
+                            value={featureDraftName}
+                            onChange={(e) =>
+                              setFeatureDraftName(e.target.value)
+                            }
+                            placeholder="Phase name"
+                            className="h-8 text-sm"
+                            disabled={updatingFeatures}
+                          />
+                          <textarea
+                            className="w-full resize-none rounded-md border border-input bg-background px-2 py-1 text-xs text-foreground shadow-sm outline-none ring-offset-background placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                            value={featureDraftDescription}
+                            onChange={(e) =>
+                              setFeatureDraftDescription(e.target.value)
+                            }
+                            rows={3}
+                            disabled={updatingFeatures}
+                          />
+                          <div className="grid gap-2 text-xs text-muted-foreground">
+                            <div className="flex flex-col gap-1">
+                              <span>Start date</span>
+                              <Popover
+                                open={phaseStartPickerOpen}
+                                onOpenChange={(open) => {
+                                  setPhaseStartPickerOpen(open);
+                                  if (open) setPhaseEndPickerOpen(false);
+                                }}
+                              >
+                                <PopoverTrigger asChild>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="h-8 w-full justify-start text-left font-normal text-xs"
+                                    disabled={updatingFeatures}
+                                  >
+                                    <CalendarClock className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
+                                    {parsePhaseDate(featureDraftStart)
+                                      ? parsePhaseDate(
+                                          featureDraftStart,
+                                        )!.toLocaleDateString("en-US", {
+                                          month: "short",
+                                          day: "numeric",
+                                          year: "numeric",
+                                        })
+                                      : "Pick start date"}
+                                  </Button>
+                                </PopoverTrigger>
+                                <PopoverContent
+                                  align="start"
+                                  className="w-auto p-3"
                                 >
-                                  <CalendarClock className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
-                                  {parsePhaseDate(featureDraftStart)
-                                    ? parsePhaseDate(
+                                  <div className="space-y-3">
+                                    <span className="text-xs font-medium text-muted-foreground">
+                                      Pick start date
+                                    </span>
+                                    <Calendar
+                                      mode="single"
+                                      selected={parsePhaseDate(
                                         featureDraftStart,
-                                      )!.toLocaleDateString("en-US", {
-                                        month: "short",
-                                        day: "numeric",
-                                        year: "numeric",
-                                      })
-                                    : "Pick start date"}
-                                </Button>
-                              </PopoverTrigger>
-                              <PopoverContent align="start" className="w-auto p-3">
-                                <div className="space-y-3">
-                                  <span className="text-xs font-medium text-muted-foreground">
-                                    Pick start date
-                                  </span>
-                                  <Calendar
-                                    mode="single"
-                                    selected={parsePhaseDate(featureDraftStart)}
-                                    onSelect={(d) => {
-                                      if (d) {
-                                        setFeatureDraftStart(toLocalYYYYMMDD(d));
-                                        setPhaseStartPickerOpen(false);
-                                      }
-                                    }}
-                                    initialFocus
-                                  />
-                                  <div className="flex justify-end pt-1">
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="xs"
-                                      className="h-7 px-2 text-[11px]"
-                                      onClick={() => {
-                                        setFeatureDraftStart(
-                                          toLocalYYYYMMDD(new Date()),
-                                        );
-                                        setPhaseStartPickerOpen(false);
+                                      )}
+                                      onSelect={(d) => {
+                                        if (d) {
+                                          setFeatureDraftStart(
+                                            toLocalYYYYMMDD(d),
+                                          );
+                                          setPhaseStartPickerOpen(false);
+                                        }
                                       }}
-                                      disabled={updatingFeatures}
-                                    >
-                                      Today
-                                    </Button>
-                                  </div>
-                                </div>
-                              </PopoverContent>
-                            </Popover>
-                          </div>
-                          <div className="flex flex-col gap-1">
-                            <span>End date</span>
-                            <Popover
-                              open={phaseEndPickerOpen}
-                              onOpenChange={(open) => {
-                                setPhaseEndPickerOpen(open);
-                                if (open) setPhaseStartPickerOpen(false);
-                              }}
-                            >
-                              <PopoverTrigger asChild>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  className="h-8 w-full justify-start text-left font-normal text-xs"
-                                  disabled={updatingFeatures}
-                                >
-                                  <CalendarClock className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
-                                  {parsePhaseDate(featureDraftEnd)
-                                    ? parsePhaseDate(
-                                        featureDraftEnd,
-                                      )!.toLocaleDateString("en-US", {
-                                        month: "short",
-                                        day: "numeric",
-                                        year: "numeric",
-                                      })
-                                    : "Pick end date"}
-                                </Button>
-                              </PopoverTrigger>
-                              <PopoverContent align="start" className="w-auto p-3">
-                                <div className="space-y-3">
-                                  <span className="text-xs font-medium text-muted-foreground">
-                                    Pick end date
-                                  </span>
-                                  <Calendar
-                                    mode="single"
-                                    selected={parsePhaseDate(featureDraftEnd)}
-                                    onSelect={(d) => {
-                                      if (d) {
-                                        setFeatureDraftEnd(toLocalYYYYMMDD(d));
-                                        setPhaseEndPickerOpen(false);
-                                      }
-                                    }}
-                                    initialFocus
-                                  />
-                                  <div className="flex justify-end pt-1">
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="xs"
-                                      className="h-7 px-2 text-[11px]"
-                                      onClick={() => {
-                                        setFeatureDraftEnd(
-                                          toLocalYYYYMMDD(new Date()),
-                                        );
-                                        setPhaseEndPickerOpen(false);
-                                      }}
-                                      disabled={updatingFeatures}
-                                    >
-                                      Today
-                                    </Button>
-                                  </div>
-                                </div>
-                              </PopoverContent>
-                            </Popover>
-                          </div>
-                        </div>
-                        <div className="flex gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 px-2 text-xs"
-                            onClick={() => {
-                              setEditingFeatureIndex(null);
-                              setPhaseStartPickerOpen(false);
-                              setPhaseEndPickerOpen(false);
-                            }}
-                            disabled={updatingFeatures}
-                          >
-                            Cancel
-                          </Button>
-                          <Button
-                            size="sm"
-                            className="h-7 px-2 text-xs"
-                            onClick={saveFeatureEdit}
-                            disabled={updatingFeatures}
-                          >
-                            Save
-                          </Button>
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        <p className="mt-0.5 font-medium text-foreground">
-                          {phase.name}
-                        </p>
-                        {phase.description && (
-                          <p className="mt-0.5 text-xs text-muted-foreground line-clamp-2">
-                            {phase.description}
-                          </p>
-                        )}
-                        <p className="mt-1 text-[11px] text-muted-foreground">
-                          {phase.start_date} → {phase.end_date}
-                        </p>
-                        {canEditFeatures && (
-                          <div className="mt-2 flex gap-1">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-                              onClick={() => startEditFeature(index)}
-                              disabled={updatingFeatures}
-                            >
-                              Edit
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 px-2 text-xs text-destructive hover:text-destructive"
-                              onClick={() => setDeletePhaseIndex(index)}
-                              disabled={updatingFeatures}
-                            >
-                              Delete
-                            </Button>
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-            {/* Desktop: table (only when enough width) */}
-            <div className="mt-2 hidden min-w-0 overflow-x-auto lg:block">
-              <Table className="text-sm">
-                <TableBody>
-                  {features.map((phase, index) => {
-                    const isEditing = editingFeatureIndex === index;
-                    return (
-                      <TableRow key={index}>
-                        <TableCell className="w-28 align-top text-xs font-medium text-muted-foreground">
-                          Phase {index + 1}
-                        </TableCell>
-                        <TableCell className="min-w-0 align-top">
-                          {canEditFeatures && isEditing ? (
-                            <div className="min-w-0 space-y-2">
-                              <Input
-                                value={featureDraftName}
-                                onChange={(e) =>
-                                  setFeatureDraftName(e.target.value)
-                                }
-                                placeholder="Phase name"
-                                className="h-8 text-sm"
-                                disabled={updatingFeatures}
-                              />
-                              <textarea
-                                className="w-full resize-none rounded-md border border-input bg-background px-2 py-1 text-xs text-foreground shadow-sm outline-none ring-offset-background placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                value={featureDraftDescription}
-                                onChange={(e) =>
-                                  setFeatureDraftDescription(e.target.value)
-                                }
-                                rows={3}
-                                disabled={updatingFeatures}
-                              />
-                              <div className="grid grid-cols-1 gap-2 text-xs text-muted-foreground min-[800px]:grid-cols-2">
-                                <div className="flex min-w-0 flex-col gap-1">
-                                  <span>Start date</span>
-                                  <Popover
-                                    open={phaseStartPickerOpen}
-                                    onOpenChange={(open) => {
-                                      setPhaseStartPickerOpen(open);
-                                      if (open) setPhaseEndPickerOpen(false);
-                                    }}
-                                  >
-                                    <PopoverTrigger asChild>
+                                      initialFocus
+                                    />
+                                    <div className="flex justify-end pt-1">
                                       <Button
                                         type="button"
-                                        variant="outline"
-                                        className="h-8 w-full min-w-0 justify-start text-left font-normal text-xs"
+                                        variant="ghost"
+                                        size="xs"
+                                        className="h-7 px-2 text-[11px]"
+                                        onClick={() => {
+                                          setFeatureDraftStart(
+                                            toLocalYYYYMMDD(new Date()),
+                                          );
+                                          setPhaseStartPickerOpen(false);
+                                        }}
                                         disabled={updatingFeatures}
                                       >
-                                        <CalendarClock className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
-                                        {parsePhaseDate(featureDraftStart)
-                                          ? parsePhaseDate(
-                                              featureDraftStart,
-                                            )!.toLocaleDateString("en-US", {
-                                              month: "short",
-                                              day: "numeric",
-                                              year: "numeric",
-                                            })
-                                          : "Pick start date"}
+                                        Today
                                       </Button>
-                                    </PopoverTrigger>
-                                    <PopoverContent align="start">
-                                      <div className="space-y-3">
-                                        <span className="text-xs font-medium text-muted-foreground">
-                                          Pick start date
-                                        </span>
-                                        <Calendar
-                                          mode="single"
-                                          selected={parsePhaseDate(
-                                            featureDraftStart,
-                                          )}
-                                          onSelect={(d) => {
-                                            if (d) {
-                                              setFeatureDraftStart(
-                                                toLocalYYYYMMDD(d),
-                                              );
-                                              setPhaseStartPickerOpen(false);
-                                            }
-                                          }}
-                                          initialFocus
-                                        />
-                                        <div className="flex justify-end gap-2 pt-1">
-                                          <Button
-                                            type="button"
-                                            variant="ghost"
-                                            size="xs"
-                                            className="h-7 px-2 text-[11px]"
-                                            onClick={() => {
-                                              setFeatureDraftStart(
-                                                toLocalYYYYMMDD(new Date()),
-                                              );
-                                              setPhaseStartPickerOpen(false);
-                                            }}
-                                            disabled={updatingFeatures}
-                                          >
-                                            Today
-                                          </Button>
-                                        </div>
-                                      </div>
-                                    </PopoverContent>
-                                  </Popover>
-                                </div>
-                                <div className="flex min-w-0 flex-col gap-1">
-                                  <span>End date</span>
-                                  <Popover
-                                    open={phaseEndPickerOpen}
-                                    onOpenChange={(open) => {
-                                      setPhaseEndPickerOpen(open);
-                                      if (open) setPhaseStartPickerOpen(false);
-                                    }}
-                                  >
-                                    <PopoverTrigger asChild>
-                                      <Button
-                                        type="button"
-                                        variant="outline"
-                                        className="h-8 w-full min-w-0 justify-start text-left font-normal text-xs"
-                                        disabled={updatingFeatures}
-                                      >
-                                        <CalendarClock className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
-                                        {parsePhaseDate(featureDraftEnd)
-                                          ? parsePhaseDate(
-                                              featureDraftEnd,
-                                            )!.toLocaleDateString("en-US", {
-                                              month: "short",
-                                              day: "numeric",
-                                              year: "numeric",
-                                            })
-                                          : "Pick end date"}
-                                      </Button>
-                                    </PopoverTrigger>
-                                    <PopoverContent align="start">
-                                      <div className="space-y-3">
-                                        <span className="text-xs font-medium text-muted-foreground">
-                                          Pick end date
-                                        </span>
-                                        <Calendar
-                                          mode="single"
-                                          selected={parsePhaseDate(
-                                            featureDraftEnd,
-                                          )}
-                                          onSelect={(d) => {
-                                            if (d) {
-                                              setFeatureDraftEnd(
-                                                toLocalYYYYMMDD(d),
-                                              );
-                                              setPhaseEndPickerOpen(false);
-                                            }
-                                          }}
-                                          initialFocus
-                                        />
-                                        <div className="flex justify-end gap-2 pt-1">
-                                          <Button
-                                            type="button"
-                                            variant="ghost"
-                                            size="xs"
-                                            className="h-7 px-2 text-[11px]"
-                                            onClick={() => {
-                                              setFeatureDraftEnd(
-                                                toLocalYYYYMMDD(new Date()),
-                                              );
-                                              setPhaseEndPickerOpen(false);
-                                            }}
-                                            disabled={updatingFeatures}
-                                          >
-                                            Today
-                                          </Button>
-                                        </div>
-                                      </div>
-                                    </PopoverContent>
-                                  </Popover>
-                                </div>
-                              </div>
-                              <div className="flex gap-2">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-7 px-2 text-xs"
-                                  onClick={() => {
-                                    setEditingFeatureIndex(null);
-                                    setPhaseStartPickerOpen(false);
-                                    setPhaseEndPickerOpen(false);
-                                  }}
-                                  disabled={updatingFeatures}
-                                >
-                                  Cancel
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  className="h-7 px-2 text-xs"
-                                  onClick={saveFeatureEdit}
-                                  disabled={updatingFeatures}
-                                >
-                                  Save
-                                </Button>
-                              </div>
+                                    </div>
+                                  </div>
+                                </PopoverContent>
+                              </Popover>
                             </div>
-                          ) : (
-                            <>
-                              <div className="font-medium">{phase.name}</div>
-                              <div className="mt-1 text-xs text-muted-foreground">
-                                {phase.description}
-                              </div>
-                              <div className="mt-1 text-[11px] text-muted-foreground">
-                                {phase.start_date} → {phase.end_date}
-                              </div>
-                            </>
+                            <div className="flex flex-col gap-1">
+                              <span>End date</span>
+                              <Popover
+                                open={phaseEndPickerOpen}
+                                onOpenChange={(open) => {
+                                  setPhaseEndPickerOpen(open);
+                                  if (open) setPhaseStartPickerOpen(false);
+                                }}
+                              >
+                                <PopoverTrigger asChild>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="h-8 w-full justify-start text-left font-normal text-xs"
+                                    disabled={updatingFeatures}
+                                  >
+                                    <CalendarClock className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
+                                    {parsePhaseDate(featureDraftEnd)
+                                      ? parsePhaseDate(
+                                          featureDraftEnd,
+                                        )!.toLocaleDateString("en-US", {
+                                          month: "short",
+                                          day: "numeric",
+                                          year: "numeric",
+                                        })
+                                      : "Pick end date"}
+                                  </Button>
+                                </PopoverTrigger>
+                                <PopoverContent
+                                  align="start"
+                                  className="w-auto p-3"
+                                >
+                                  <div className="space-y-3">
+                                    <span className="text-xs font-medium text-muted-foreground">
+                                      Pick end date
+                                    </span>
+                                    <Calendar
+                                      mode="single"
+                                      selected={parsePhaseDate(featureDraftEnd)}
+                                      onSelect={(d) => {
+                                        if (d) {
+                                          setFeatureDraftEnd(
+                                            toLocalYYYYMMDD(d),
+                                          );
+                                          setPhaseEndPickerOpen(false);
+                                        }
+                                      }}
+                                      initialFocus
+                                    />
+                                    <div className="flex justify-end pt-1">
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="xs"
+                                        className="h-7 px-2 text-[11px]"
+                                        onClick={() => {
+                                          setFeatureDraftEnd(
+                                            toLocalYYYYMMDD(new Date()),
+                                          );
+                                          setPhaseEndPickerOpen(false);
+                                        }}
+                                        disabled={updatingFeatures}
+                                      >
+                                        Today
+                                      </Button>
+                                    </div>
+                                  </div>
+                                </PopoverContent>
+                              </Popover>
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 px-2 text-xs"
+                              onClick={() => {
+                                setEditingFeatureIndex(null);
+                                setPhaseStartPickerOpen(false);
+                                setPhaseEndPickerOpen(false);
+                              }}
+                              disabled={updatingFeatures}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              size="sm"
+                              className="h-7 px-2 text-xs"
+                              onClick={saveFeatureEdit}
+                              disabled={updatingFeatures}
+                            >
+                              Save
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <p className="mt-0.5 font-medium text-foreground">
+                            {phase.name}
+                          </p>
+                          {phase.description && (
+                            <p className="mt-0.5 text-xs text-muted-foreground line-clamp-2">
+                              {phase.description}
+                            </p>
                           )}
-                        </TableCell>
-                        <TableCell className="w-32 align-top text-right">
-                          {canEditFeatures && !isEditing && (
-                            <div className="flex justify-end gap-1">
+                          <p className="mt-1 text-[11px] text-muted-foreground">
+                            {phase.start_date} → {phase.end_date}
+                          </p>
+                          {canEditFeatures && (
+                            <div className="mt-2 flex gap-1">
                               <Button
                                 variant="ghost"
-                                size="icon-sm"
-                                className="text-muted-foreground hover:text-foreground"
+                                size="sm"
+                                className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
                                 onClick={() => startEditFeature(index)}
                                 disabled={updatingFeatures}
                               >
-                                <Pencil className="size-3" />
-                                <span className="sr-only">Edit feature</span>
+                                Edit
                               </Button>
                               <Button
                                 variant="ghost"
-                                size="icon-sm"
-                                className="text-destructive hover:text-destructive"
+                                size="sm"
+                                className="h-7 px-2 text-xs text-destructive hover:text-destructive"
                                 onClick={() => setDeletePhaseIndex(index)}
                                 disabled={updatingFeatures}
                               >
-                                <Trash2 className="size-3" />
-                                <span className="sr-only">Delete feature</span>
+                                Delete
                               </Button>
                             </div>
                           )}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-          </>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              {/* Desktop: table (only when enough width) */}
+              <div className="mt-2 hidden min-w-0 overflow-x-auto lg:block">
+                <Table className="text-sm">
+                  <TableBody>
+                    {features.map((phase, index) => {
+                      const isEditing = editingFeatureIndex === index;
+                      return (
+                        <TableRow key={index}>
+                          <TableCell className="w-28 align-top text-xs font-medium text-muted-foreground">
+                            Phase {index + 1}
+                          </TableCell>
+                          <TableCell className="min-w-0 align-top">
+                            {canEditFeatures && isEditing ? (
+                              <div className="min-w-0 space-y-2">
+                                <Input
+                                  value={featureDraftName}
+                                  onChange={(e) =>
+                                    setFeatureDraftName(e.target.value)
+                                  }
+                                  placeholder="Phase name"
+                                  className="h-8 text-sm"
+                                  disabled={updatingFeatures}
+                                />
+                                <textarea
+                                  className="w-full resize-none rounded-md border border-input bg-background px-2 py-1 text-xs text-foreground shadow-sm outline-none ring-offset-background placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                  value={featureDraftDescription}
+                                  onChange={(e) =>
+                                    setFeatureDraftDescription(e.target.value)
+                                  }
+                                  rows={3}
+                                  disabled={updatingFeatures}
+                                />
+                                <div className="grid grid-cols-1 gap-2 text-xs text-muted-foreground min-[800px]:grid-cols-2">
+                                  <div className="flex min-w-0 flex-col gap-1">
+                                    <span>Start date</span>
+                                    <Popover
+                                      open={phaseStartPickerOpen}
+                                      onOpenChange={(open) => {
+                                        setPhaseStartPickerOpen(open);
+                                        if (open) setPhaseEndPickerOpen(false);
+                                      }}
+                                    >
+                                      <PopoverTrigger asChild>
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          className="h-8 w-full min-w-0 justify-start text-left font-normal text-xs"
+                                          disabled={updatingFeatures}
+                                        >
+                                          <CalendarClock className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
+                                          {parsePhaseDate(featureDraftStart)
+                                            ? parsePhaseDate(
+                                                featureDraftStart,
+                                              )!.toLocaleDateString("en-US", {
+                                                month: "short",
+                                                day: "numeric",
+                                                year: "numeric",
+                                              })
+                                            : "Pick start date"}
+                                        </Button>
+                                      </PopoverTrigger>
+                                      <PopoverContent align="start">
+                                        <div className="space-y-3">
+                                          <span className="text-xs font-medium text-muted-foreground">
+                                            Pick start date
+                                          </span>
+                                          <Calendar
+                                            mode="single"
+                                            selected={parsePhaseDate(
+                                              featureDraftStart,
+                                            )}
+                                            onSelect={(d) => {
+                                              if (d) {
+                                                setFeatureDraftStart(
+                                                  toLocalYYYYMMDD(d),
+                                                );
+                                                setPhaseStartPickerOpen(false);
+                                              }
+                                            }}
+                                            initialFocus
+                                          />
+                                          <div className="flex justify-end gap-2 pt-1">
+                                            <Button
+                                              type="button"
+                                              variant="ghost"
+                                              size="xs"
+                                              className="h-7 px-2 text-[11px]"
+                                              onClick={() => {
+                                                setFeatureDraftStart(
+                                                  toLocalYYYYMMDD(new Date()),
+                                                );
+                                                setPhaseStartPickerOpen(false);
+                                              }}
+                                              disabled={updatingFeatures}
+                                            >
+                                              Today
+                                            </Button>
+                                          </div>
+                                        </div>
+                                      </PopoverContent>
+                                    </Popover>
+                                  </div>
+                                  <div className="flex min-w-0 flex-col gap-1">
+                                    <span>End date</span>
+                                    <Popover
+                                      open={phaseEndPickerOpen}
+                                      onOpenChange={(open) => {
+                                        setPhaseEndPickerOpen(open);
+                                        if (open)
+                                          setPhaseStartPickerOpen(false);
+                                      }}
+                                    >
+                                      <PopoverTrigger asChild>
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          className="h-8 w-full min-w-0 justify-start text-left font-normal text-xs"
+                                          disabled={updatingFeatures}
+                                        >
+                                          <CalendarClock className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
+                                          {parsePhaseDate(featureDraftEnd)
+                                            ? parsePhaseDate(
+                                                featureDraftEnd,
+                                              )!.toLocaleDateString("en-US", {
+                                                month: "short",
+                                                day: "numeric",
+                                                year: "numeric",
+                                              })
+                                            : "Pick end date"}
+                                        </Button>
+                                      </PopoverTrigger>
+                                      <PopoverContent align="start">
+                                        <div className="space-y-3">
+                                          <span className="text-xs font-medium text-muted-foreground">
+                                            Pick end date
+                                          </span>
+                                          <Calendar
+                                            mode="single"
+                                            selected={parsePhaseDate(
+                                              featureDraftEnd,
+                                            )}
+                                            onSelect={(d) => {
+                                              if (d) {
+                                                setFeatureDraftEnd(
+                                                  toLocalYYYYMMDD(d),
+                                                );
+                                                setPhaseEndPickerOpen(false);
+                                              }
+                                            }}
+                                            initialFocus
+                                          />
+                                          <div className="flex justify-end gap-2 pt-1">
+                                            <Button
+                                              type="button"
+                                              variant="ghost"
+                                              size="xs"
+                                              className="h-7 px-2 text-[11px]"
+                                              onClick={() => {
+                                                setFeatureDraftEnd(
+                                                  toLocalYYYYMMDD(new Date()),
+                                                );
+                                                setPhaseEndPickerOpen(false);
+                                              }}
+                                              disabled={updatingFeatures}
+                                            >
+                                              Today
+                                            </Button>
+                                          </div>
+                                        </div>
+                                      </PopoverContent>
+                                    </Popover>
+                                  </div>
+                                </div>
+                                <div className="flex gap-2">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 px-2 text-xs"
+                                    onClick={() => {
+                                      setEditingFeatureIndex(null);
+                                      setPhaseStartPickerOpen(false);
+                                      setPhaseEndPickerOpen(false);
+                                    }}
+                                    disabled={updatingFeatures}
+                                  >
+                                    Cancel
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    className="h-7 px-2 text-xs"
+                                    onClick={saveFeatureEdit}
+                                    disabled={updatingFeatures}
+                                  >
+                                    Save
+                                  </Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                <div className="font-medium">{phase.name}</div>
+                                <div className="mt-1 text-xs text-muted-foreground">
+                                  {phase.description}
+                                </div>
+                                <div className="mt-1 text-[11px] text-muted-foreground">
+                                  {phase.start_date} → {phase.end_date}
+                                </div>
+                              </>
+                            )}
+                          </TableCell>
+                          <TableCell className="w-32 align-top text-right">
+                            {canEditFeatures && !isEditing && (
+                              <div className="flex justify-end gap-1">
+                                <Button
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  className="text-muted-foreground hover:text-foreground"
+                                  onClick={() => startEditFeature(index)}
+                                  disabled={updatingFeatures}
+                                >
+                                  <Pencil className="size-3" />
+                                  <span className="sr-only">Edit feature</span>
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  className="text-destructive hover:text-destructive"
+                                  onClick={() => setDeletePhaseIndex(index)}
+                                  disabled={updatingFeatures}
+                                >
+                                  <Trash2 className="size-3" />
+                                  <span className="sr-only">
+                                    Delete feature
+                                  </span>
+                                </Button>
+                              </div>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
           )}
         </div>
       </div>

@@ -26,6 +26,7 @@ interface ProjectWbs {
 
 interface ProjectData {
   project_wbs?: ProjectWbs[];
+  unassigned_tasks?: ProjectWbsTask[];
 }
 
 interface RawProject {
@@ -110,6 +111,26 @@ export function useCalendarData() {
               taskOrder: task.order,
             });
           }
+        }
+
+        for (const task of data.unassigned_tasks ?? []) {
+          const parsed = new Date(task.date + "T00:00:00");
+          if (isNaN(parsed.getTime())) continue;
+
+          events.push({
+            id: `${rp._id}-0-${task.order}`,
+            projectId: rp._id,
+            projectName: rp.projectName || rp.summaryName,
+            phaseName: "Unassigned",
+            taskName: task.name,
+            date: parsed,
+            timeStr: task.time,
+            ...(task.endTime ? { endTimeStr: task.endTime } : {}),
+            colorIndex,
+            completed: Boolean(task.completed),
+            phaseOrder: 0,
+            taskOrder: task.order,
+          });
         }
       } catch {
         // invalid JSON

@@ -12,8 +12,16 @@ const TOOLS = [
         properties: {
           projectId: { type: "string", description: "The project ID to add the task to" },
           projectName: { type: "string", description: "The project name (for display)" },
-          phaseOrder: { type: "number", description: "The phase order number to add the task to" },
-          phaseName: { type: "string", description: "The phase name (for display)" },
+          phaseOrder: {
+            type: "number",
+            description:
+              "Optional. Phase order to add the task to. Omit for an unassigned task (no phase).",
+          },
+          phaseName: {
+            type: "string",
+            description:
+              "Optional. Phase name for display when phaseOrder is set; omit when creating an unassigned task.",
+          },
           title: { type: "string", description: "The task title" },
           dueDate: { type: "string", description: "Due date in YYYY-MM-DD format" },
           time: { type: "string", description: "Start time, e.g. 9:00 AM" },
@@ -24,7 +32,7 @@ const TOOLS = [
               "Optional parent task id. Use when creating automatic chunk subtasks so they can be grouped.",
           },
         },
-        required: ["projectId", "projectName", "phaseOrder", "phaseName", "title", "dueDate"],
+        required: ["projectId", "projectName", "title", "dueDate"],
       },
     },
   },
@@ -231,8 +239,10 @@ ${eventLines.length > 0 ? eventLines.join("\n") : "  (no calendar events yet)"}
 19. Task names must be clear, specific, and outcome-based (e.g. "Outline onboarding email sequence" instead of "Emails" or "Misc work"). Avoid generic or vague titles.`;
 }
 
+const CHAT_MODEL = "google/gemini-3-flash-preview";
+
 export async function POST(request: Request) {
-  const { messages, context, useClaudeFirstPrompt } = await request.json();
+  const { messages, context } = await request.json();
 
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
@@ -243,10 +253,6 @@ export async function POST(request: Request) {
   }
 
   try {
-    const model = useClaudeFirstPrompt
-      ? "anthropic/claude-opus-4.5"
-      : "google/gemini-3-flash-preview";
-
     const systemMessage = context
       ? { role: "system", content: buildSystemPrompt(context as AiContext) }
       : null;
@@ -257,7 +263,7 @@ export async function POST(request: Request) {
     ];
 
     const body: Record<string, unknown> = {
-      model,
+      model: CHAT_MODEL,
       messages: apiMessages,
       stream: true,
     };

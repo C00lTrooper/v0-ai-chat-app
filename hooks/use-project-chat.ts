@@ -1,7 +1,5 @@
 "use client"
 
-"use client"
-
 import { useState, useCallback, useRef, useMemo, useEffect } from "react"
 import { useQuery, useMutation } from "convex/react"
 import { api } from "@/convex/_generated/api"
@@ -55,14 +53,12 @@ export function useProjectChat({
   activeChatId,
   projectToLink,
   onProjectLinked,
-  useClaudeFirstPrompt,
   aiContext,
   currentProjectId,
 }: {
   activeChatId: Id<"chats"> | null
   projectToLink: Id<"projects"> | null
   onProjectLinked: (chatId: Id<"chats">) => void
-  useClaudeFirstPrompt: boolean
   aiContext?: AiContext | null
   currentProjectId?: string | null
 }) {
@@ -176,10 +172,9 @@ export function useProjectChat({
     signal: AbortSignal,
     onDelta: (delta: { content?: string; reasoning?: string }) => void,
     onToolCallDelta: () => void,
-    useClaudeFirstPrompt: boolean,
     context?: AiContext | null,
   ): Promise<{ fullContent: string; fullReasoning: string; toolCalls: StreamingToolCall[] }> {
-    const body: Record<string, unknown> = { messages: apiMessages, useClaudeFirstPrompt }
+    const body: Record<string, unknown> = { messages: apiMessages }
     if (context) body.context = context
 
     const response = await fetch("/api/chat", {
@@ -330,7 +325,9 @@ export function useProjectChat({
             const result = await createTaskMutation({
               token: sessionToken,
               projectId: args.projectId as Id<"projects">,
-              phaseOrder: args.phaseOrder as number,
+              ...(typeof args.phaseOrder === "number"
+                ? { phaseOrder: args.phaseOrder }
+                : {}),
               title: args.title as string,
               dueDate: args.dueDate as string,
               time: (args.time as string) || undefined,
@@ -634,7 +631,6 @@ export function useProjectChat({
                 return prev
               })
             },
-            useClaudeFirstPrompt,
             enrichedContext,
           )
 
@@ -923,7 +919,6 @@ export function useProjectChat({
       createChatMutation,
       renameChatMutation,
       onProjectLinked,
-      useClaudeFirstPrompt,
       aiContext,
       currentProjectId,
     ],

@@ -14,14 +14,14 @@ const generateTemplate = {
   },
   project_wbs: [
     {
-      order: "integer (0-based, 0..4)",
+      order: "integer (1-based by phase start_date; earliest phase = 1)",
       name: "one of: Setup | Core Features | Secondary Features | Testing & QA | Launch",
       description: "Short phase description explaining what this phase covers",
       start_date: "YYYY-MM-DD",
       end_date: "YYYY-MM-DD",
       tasks: [
         {
-          order: "integer (0-based, increasing within the phase)",
+          order: "integer (1-based by task date then time; earliest in phase = 1)",
           name: "Short, scannable task title (<= 5 words, no jargon)",
           description:
             "2–4 sentences of practical guidance explaining how to complete the task: what to build, how to approach it, and what the end result should look like",
@@ -71,12 +71,12 @@ export function buildGenerateProjectSystemMessage() {
       "  - The duration between `time` and `endTime` must be **> 0 minutes and <= 2 hours**.\n" +
       "  - All times must fall within a standard workday of **09:00–17:00**, Monday–Friday.\n\n" +
       "## Structure and ordering\n" +
-      "- You MUST create **exactly five phases** in `project_wbs`, in this order:\n" +
-      "  0. Setup\n" +
-      "  1. Core Features\n" +
-      "  2. Secondary Features\n" +
-      "  3. Testing & QA\n" +
-      "  4. Launch\n" +
+      "- You MUST create **exactly five phases** in `project_wbs`, named in this sequence (set `order` 1..5 by chronological `start_date`):\n" +
+      "  1. Setup\n" +
+      "  2. Core Features\n" +
+      "  3. Secondary Features\n" +
+      "  4. Testing & QA\n" +
+      "  5. Launch\n" +
       "- For each phase:\n" +
       "  - `name` must exactly match the phase name above.\n" +
       "  - `description` must clearly explain what this phase covers.\n" +

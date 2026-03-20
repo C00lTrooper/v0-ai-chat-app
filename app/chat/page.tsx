@@ -42,8 +42,6 @@ export default function ChatPage() {
   const [projectToLinkId, setProjectToLinkId] = useState<Id<"projects"> | null>(
     initialProjectId ? (initialProjectId as Id<"projects">) : null,
   );
-  const [useClaudeFirstPrompt, setUseClaudeFirstPrompt] = useState(false);
-
   const projects = useQuery(
     api.projects.list,
     sessionToken ? { token: sessionToken } : "skip",
@@ -168,7 +166,6 @@ export default function ChatPage() {
     activeChatId,
     projectToLink: projectToLinkId,
     onProjectLinked: handleProjectLinked,
-    useClaudeFirstPrompt,
     aiContext,
     currentProjectId,
   });
@@ -186,24 +183,6 @@ export default function ChatPage() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const stored = window.localStorage.getItem("useClaudeFirstPrompt");
-    if (stored !== null) {
-      setUseClaudeFirstPrompt(stored === "true");
-    }
-  }, []);
-
-  const handleUseClaudeFirstPromptChange = useCallback((value: boolean) => {
-    setUseClaudeFirstPrompt(value);
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(
-        "useClaudeFirstPrompt",
-        value ? "true" : "false",
-      );
-    }
-  }, []);
 
   useEffect(() => {
     const el = bottomRef.current;
@@ -323,8 +302,6 @@ export default function ChatPage() {
         isLoading={isLoading}
         error={error}
         onClear={handleNewChat}
-        useClaudeFirstPrompt={useClaudeFirstPrompt}
-        onUseClaudeFirstPromptChange={handleUseClaudeFirstPromptChange}
       />
     </>
   );

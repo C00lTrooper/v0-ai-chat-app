@@ -38,6 +38,23 @@ export function dateKey(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
+/**
+ * Parse `YYYY-MM-DD` as a local calendar date (midnight local).
+ * `new Date("YYYY-MM-DD")` is UTC in JS and shifts the day in many timezones.
+ */
+export function parseYmdLocal(ymd: string): Date | undefined {
+  const m = ymd.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return undefined;
+  const y = parseInt(m[1], 10);
+  const mo = parseInt(m[2], 10) - 1;
+  const d = parseInt(m[3], 10);
+  const dt = new Date(y, mo, d);
+  if (dt.getFullYear() !== y || dt.getMonth() !== mo || dt.getDate() !== d) {
+    return undefined;
+  }
+  return dt;
+}
+
 export function isSameDay(a: Date, b: Date): boolean {
   return (
     a.getFullYear() === b.getFullYear() &&

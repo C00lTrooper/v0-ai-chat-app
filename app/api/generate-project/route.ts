@@ -51,7 +51,7 @@ export async function POST(request: Request) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "anthropic/claude-sonnet-4",
+        model: "google/gemini-3-flash-preview",
         messages: [
           systemMessage,
           { role: "user" as const, content: userContent },

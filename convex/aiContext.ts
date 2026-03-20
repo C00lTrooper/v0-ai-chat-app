@@ -87,6 +87,21 @@ export const getContext = query({
             });
           }
         }
+        for (const task of data.unassigned_tasks || []) {
+          totalTasks++;
+          if (task.completed) completedTasks++;
+          tasks.push({
+            phaseOrder: 0,
+            phaseName: "Unassigned",
+            taskOrder: task.order,
+            title: task.name,
+            description: typeof task.description === "string" ? task.description : undefined,
+            dueDate: task.date,
+            startTime: task.time || "9:00 AM",
+            endTime: task.endTime || undefined,
+            completed: Boolean(task.completed),
+          });
+        }
       } catch {
         // data may not be valid JSON
       }

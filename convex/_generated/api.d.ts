@@ -18,6 +18,7 @@ import type * as features from "../features.js";
 import type * as projects from "../projects.js";
 import type * as scheduling from "../scheduling.js";
 import type * as tasks from "../tasks.js";
+import type * as wbsPersistence from "../wbsPersistence.js";
 
 import type {
   ApiFromModules,
@@ -36,6 +37,7 @@ declare const fullApi: ApiFromModules<{
   projects: typeof projects;
   scheduling: typeof scheduling;
   tasks: typeof tasks;
+  wbsPersistence: typeof wbsPersistence;
 }>;
 
 /**

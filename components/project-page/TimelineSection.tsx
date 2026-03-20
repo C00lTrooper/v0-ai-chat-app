@@ -263,9 +263,7 @@ export function TimelineSection({ project }: TimelineSectionProps) {
   const dayWidth = zoom === "day" ? 72 : 24;
   const totalWidth = totalDays * dayWidth;
   const ROW_HEIGHT = 72;
-  const maxRow = hasPhases
-    ? Math.max(...editablePhases.map((p) => p.row))
-    : 0;
+  const maxRow = hasPhases ? Math.max(...editablePhases.map((p) => p.row)) : 0;
   const rows = maxRow + 1;
   const rowsHeight = rows * ROW_HEIGHT;
   const chartHeight = rowsHeight + 32;
@@ -409,7 +407,9 @@ export function TimelineSection({ project }: TimelineSectionProps) {
           : p,
       );
 
-      const movedPhase = updatedPhases.find((p) => p.phase.order === movedOrder);
+      const movedPhase = updatedPhases.find(
+        (p) => p.phase.order === movedOrder,
+      );
       if (movedPhase) {
         const durationDays =
           Math.round(
@@ -571,7 +571,7 @@ export function TimelineSection({ project }: TimelineSectionProps) {
               altText="Undo task rescheduling"
               onClick={async () => {
                 try {
-                    await client.mutation(
+                  await client.mutation(
                     api.scheduling.undoLastProjectSchedulingRun,
                     {
                       token: sessionToken,

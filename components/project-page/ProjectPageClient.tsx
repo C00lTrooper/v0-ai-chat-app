@@ -38,6 +38,8 @@ import { ChatSection } from "@/components/project-page/ChatSection";
 import { SettingsSection } from "@/components/project-page/SettingsSection";
 import { BudgetSection } from "@/components/project-page/BudgetSection";
 import type { Project } from "@/lib/project-schema";
+import { UNASSIGNED_PHASE_ORDER } from "@/lib/task-phase-date";
+import { assignWbsOrdersFromDates } from "@/lib/wbs-order-from-dates";
 import type { ProjectData, Section } from "@/components/project-page/types";
 
 type NavItem = {
@@ -114,7 +116,9 @@ function SectionContent({
 }) {
   switch (section) {
     case "overview":
-      return <OverviewSection project={project} onProjectPatch={onProjectPatch} />;
+      return (
+        <OverviewSection project={project} onProjectPatch={onProjectPatch} />
+      );
     case "features":
       return <FeaturesSection project={project} />;
     case "tasks":
@@ -249,21 +253,32 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
       return;
     }
 
-    const updatedProjectWbs = parsed.project_wbs.map((phase) =>
-      phase.order === phaseOrder
-        ? {
-            ...phase,
-            tasks: phase.tasks.map((task) =>
-              task.order === taskOrder ? { ...task, completed } : task,
-            ),
-          }
-        : phase,
-    ) as Project["project_wbs"];
+    let updated: Project;
+    if (phaseOrder === UNASSIGNED_PHASE_ORDER) {
+      const list = parsed.unassigned_tasks ?? [];
+      updated = {
+        ...parsed,
+        unassigned_tasks: list.map((task) =>
+          task.order === taskOrder ? { ...task, completed } : task,
+        ),
+      };
+    } else {
+      const updatedProjectWbs = parsed.project_wbs.map((phase) =>
+        phase.order === phaseOrder
+          ? {
+              ...phase,
+              tasks: phase.tasks.map((task) =>
+                task.order === taskOrder ? { ...task, completed } : task,
+              ),
+            }
+          : phase,
+      ) as Project["project_wbs"];
 
-    const updated: Project = {
-      ...parsed,
-      project_wbs: updatedProjectWbs,
-    };
+      updated = {
+        ...parsed,
+        project_wbs: updatedProjectWbs,
+      };
+    }
 
     const dataStr = JSON.stringify(updated);
 
@@ -437,22 +452,17 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
         }
       }
 
-      // Reassign task orders sequentially after splitting
-      const reNumberedTasks =
-        newTasks?.map((t, idx) => ({
-          ...t,
-          order: idx,
-        })) ?? [];
-
       updatedPhases.push({
         ...phase,
-        tasks: reNumberedTasks,
+        tasks: newTasks,
       });
     }
 
     return {
       ...data,
-      project_wbs: updatedPhases as Project["project_wbs"],
+      project_wbs: assignWbsOrdersFromDates(
+        updatedPhases as Project["project_wbs"],
+      ),
     };
   };
 
