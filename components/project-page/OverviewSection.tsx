@@ -40,11 +40,13 @@ type Phase = Project["project_wbs"][number];
 type OverviewSectionProps = {
   project: ProjectData;
   onTargetDateChange?: (newDate: string) => void;
+  onProjectPatch?: (patch: Partial<ProjectData>) => void;
 };
 
 export function OverviewSection({
   project,
   onTargetDateChange,
+  onProjectPatch,
 }: OverviewSectionProps) {
   const { sessionToken } = useAuth();
   const updateProject = useMutation(api.projects.update);
@@ -79,6 +81,7 @@ export function OverviewSection({
       });
       setSelectedDate(date);
       onTargetDateChange?.(iso);
+      onProjectPatch?.({ targetDate: iso });
       toast({ title: "Target date updated." });
     } catch {
       toast({
@@ -144,21 +147,42 @@ export function OverviewSection({
 
   const persistFeatures = async (nextFeatures: Phase[]) => {
     if (!sessionToken || updatingFeatures) return;
-    if (!parsedProject) return;
     setUpdatingFeatures(true);
     try {
+      const normalizedWbs = nextFeatures.map((phase, index) => ({
+        ...phase,
+        order: index,
+      })) as Project["project_wbs"];
+
+      const baseProject: Project =
+        parsedProject ??
+        ({
+          project_name: project.projectName || project.summaryName || "Project",
+          project_summary: {
+            name: project.summaryName || project.projectName || "Project",
+            objective:
+              project.objective || "Objective not specified. Update in Overview.",
+            duration: 0,
+            estimated_budget: 0,
+            target_date:
+              project.targetDate || new Date().toISOString().slice(0, 10),
+          },
+          project_wbs: normalizedWbs,
+          project_milestones: [],
+        } as Project);
+
       const updatedProject: Project = {
-        ...parsedProject,
-        project_wbs: nextFeatures.map((phase, index) => ({
-          ...phase,
-          order: index,
-        })) as Project["project_wbs"],
+        ...baseProject,
+        project_wbs: normalizedWbs,
       };
+
       await updateProject({
         token: sessionToken,
         projectId: project._id as Id<"projects">,
         data: JSON.stringify(updatedProject),
       });
+      onProjectPatch?.({ data: JSON.stringify(updatedProject) });
+
       setFeatures(
         [...updatedProject.project_wbs].sort((a, b) =>
           a.start_date.localeCompare(b.start_date),
@@ -167,7 +191,7 @@ export function OverviewSection({
     } catch {
       toast({
         variant: "destructive",
-        title: "Failed to update features.",
+        title: "Failed to update phases.",
       });
     } finally {
       setUpdatingFeatures(false);
@@ -372,6 +396,7 @@ export function OverviewSection({
                         projectId: project._id as Id<"projects">,
                         objective: objectiveDraft,
                       });
+                      onProjectPatch?.({ objective: objectiveDraft });
                       toast({ title: "Objective updated." });
                       setEditingObjective(false);
                     } catch {
@@ -396,36 +421,45 @@ export function OverviewSection({
         </div>
       </div>
 
-      {features.length ? (
-        <div className="mt-4 w-full min-w-0 sm:mt-6">
-          <div className="rounded-xl border border-border bg-card p-4 sm:p-5">
-            <div className="flex flex-wrap items-center justify-between gap-2 text-sm font-medium text-muted-foreground">
-              <div className="flex items-center gap-2">
-                <Layers className="size-4 shrink-0" />
-                Project Phases
-              </div>
-              {canEditFeatures && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 px-2.5 text-xs"
-                  onClick={addFeature}
-                  disabled={updatingFeatures}
-                >
-                  <Plus className="mr-1 size-3" />
-                  Add phase
-                </Button>
-              )}
+      <div className="mt-4 w-full min-w-0 sm:mt-6">
+        <div className="rounded-xl border border-border bg-card p-4 sm:p-5">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-sm font-medium text-muted-foreground">
+            <div className="flex items-center gap-2">
+              <Layers className="size-4 shrink-0" />
+              Project Phases
             </div>
-            {/* Stacked phase cards: use for small/medium viewports to avoid cramped table */}
-            <div className="mt-2 space-y-2 lg:hidden">
-              {features.map((phase, index) => {
-                const isEditing = editingFeatureIndex === index;
-                return (
-                  <div
-                    key={index}
-                    className="rounded-lg border border-border/60 bg-muted/20 p-3 text-sm"
-                  >
+            {canEditFeatures && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 px-2.5 text-xs"
+                onClick={addFeature}
+                disabled={updatingFeatures}
+              >
+                <Plus className="mr-1 size-3" />
+                Add phase
+              </Button>
+            )}
+          </div>
+
+          {features.length === 0 ? (
+            <div className="mt-3 rounded-lg border border-dashed border-border bg-muted/10 px-4 py-6 text-sm text-muted-foreground">
+              <p className="font-medium text-foreground">No phases yet</p>
+              <p className="mt-1 text-xs">
+                Start by adding phases here, or use the sidebar generator to create a draft plan.
+              </p>
+            </div>
+          ) : (
+            <>
+              {/* Stacked phase cards: use for small/medium viewports to avoid cramped table */}
+              <div className="mt-2 space-y-2 lg:hidden">
+                {features.map((phase, index) => {
+                  const isEditing = editingFeatureIndex === index;
+                  return (
+                    <div
+                      key={index}
+                      className="rounded-lg border border-border/60 bg-muted/20 p-3 text-sm"
+                    >
                     <p className="text-[11px] font-medium text-muted-foreground">
                       Phase {index + 1}
                     </p>
@@ -886,9 +920,10 @@ export function OverviewSection({
                 </TableBody>
               </Table>
             </div>
-          </div>
+          </>
+          )}
         </div>
-      ) : null}
+      </div>
 
       <AlertDialog
         open={deletePhaseIndex !== null}

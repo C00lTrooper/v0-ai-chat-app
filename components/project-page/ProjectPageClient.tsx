@@ -101,6 +101,7 @@ function SectionContent({
   section,
   project,
   onTaskCompleted,
+  onProjectPatch,
 }: {
   section: Section;
   project: ProjectData;
@@ -109,15 +110,20 @@ function SectionContent({
     taskOrder: number,
     completed: boolean,
   ) => Promise<void> | void;
+  onProjectPatch?: (patch: Partial<ProjectData>) => void;
 }) {
   switch (section) {
     case "overview":
-      return <OverviewSection project={project} />;
+      return <OverviewSection project={project} onProjectPatch={onProjectPatch} />;
     case "features":
       return <FeaturesSection project={project} />;
     case "tasks":
       return (
-        <TasksSection project={project} onTaskCompleted={onTaskCompleted} />
+        <TasksSection
+          project={project}
+          onTaskCompleted={onTaskCompleted}
+          onProjectPatch={onProjectPatch}
+        />
       );
     case "chat":
       return <ChatSection project={project} />;
@@ -516,6 +522,10 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
     }
   };
 
+  const handleProjectPatch = (patch: Partial<ProjectData>) => {
+    setProject((prev) => (prev ? { ...prev, ...patch } : prev));
+  };
+
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-background">
       <ChatHeader
@@ -637,6 +647,7 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
             section={activeSection}
             project={project}
             onTaskCompleted={handleTaskCompleted}
+            onProjectPatch={handleProjectPatch}
           />
         </main>
       </div>

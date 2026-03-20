@@ -1,9 +1,39 @@
 import { Fragment, useMemo, useState } from "react";
 import { useQuery } from "convex/react";
-import { CheckSquare, Layers, CheckCircle2, Circle, MoreVertical } from "lucide-react";
+import {
+  CheckSquare,
+  Layers,
+  CheckCircle2,
+  Circle,
+  MoreVertical,
+  CalendarClock,
+} from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Calendar } from "@/components/ui/calendar";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { TaskDetailDialog } from "@/components/calendar/task-detail-dialog";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/auth-provider";
@@ -12,6 +42,138 @@ import type { Id } from "@/convex/_generated/dataModel";
 import type { CalendarEvent } from "@/lib/calendar-utils";
 import type { Project } from "@/lib/project-schema";
 import type { ProjectData } from "@/components/project-page/types";
+import { convexClient } from "@/lib/convex";
+
+function parseISODate(s: string): Date | undefined {
+  const t = s?.trim();
+  if (!t) return undefined;
+  const d = new Date(`${t}T12:00:00`);
+  return Number.isNaN(d.getTime()) ? undefined : d;
+}
+
+function formatTaskDateLabel(iso: string): string {
+  const d = parseISODate(iso);
+  if (!d) return iso;
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+const MINUTE_STEP = 5;
+const MINUTE_OPTIONS = Array.from(
+  { length: 60 / MINUTE_STEP },
+  (_, i) => i * MINUTE_STEP,
+);
+
+function parseTime24(s: string): { h: number; m: number } | null {
+  const t = s?.trim();
+  if (!t) return null;
+  const match = t.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  const h = parseInt(match[1], 10);
+  const min = parseInt(match[2], 10);
+  if (
+    Number.isNaN(h) ||
+    Number.isNaN(min) ||
+    h < 0 ||
+    h > 23 ||
+    min < 0 ||
+    min > 59
+  ) {
+    return null;
+  }
+  return { h, m: min };
+}
+
+function formatTime24(h: number, m: number): string {
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+function snapMinuteToStep(m: number, step = MINUTE_STEP): number {
+  const s = Math.round(m / step) * step;
+  return Math.min(55, Math.max(0, s));
+}
+
+function formatHour12Label(h24: number): string {
+  if (h24 === 0) return "12 AM";
+  if (h24 < 12) return `${h24} AM`;
+  if (h24 === 12) return "12 PM";
+  return `${h24 - 12} PM`;
+}
+
+function addOneHourFromTime(hhmm: string): string {
+  const p = parseTime24(hhmm);
+  if (!p) return "10:00";
+  const d = new Date(1970, 0, 1, p.h, p.m, 0, 0);
+  d.setHours(d.getHours() + 1);
+  return formatTime24(d.getHours(), snapMinuteToStep(d.getMinutes()));
+}
+
+function ScheduleTimeSelects({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const p = parseTime24(value);
+  const h = p?.h ?? 9;
+  const m = snapMinuteToStep(p?.m ?? 0);
+
+  return (
+    <div className="space-y-2">
+      {label ? (
+        <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      ) : null}
+      <div className="flex min-w-0 gap-2">
+        <Select
+          value={String(h)}
+          onValueChange={(hv) => {
+            const nh = parseInt(hv, 10);
+            const cur = parseTime24(value);
+            const mm = snapMinuteToStep(cur?.m ?? 0);
+            onChange(formatTime24(nh, mm));
+          }}
+        >
+          <SelectTrigger className="h-10 min-w-0 flex-1 bg-background">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="z-[100] max-h-60">
+            {Array.from({ length: 24 }, (_, i) => (
+              <SelectItem key={i} value={String(i)}>
+                {formatHour12Label(i)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select
+          value={String(m)}
+          onValueChange={(mv) => {
+            const nm = parseInt(mv, 10);
+            const cur = parseTime24(value);
+            const hh = cur?.h ?? 9;
+            onChange(formatTime24(hh, nm));
+          }}
+        >
+          <SelectTrigger className="h-10 w-[104px] shrink-0 bg-background tabular-nums">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="z-[100] max-h-60">
+            {MINUTE_OPTIONS.map((min) => (
+              <SelectItem key={min} value={String(min)}>
+                :{String(min).padStart(2, "0")}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
+  );
+}
 
 type TaskRef = {
   phaseOrder: number;
@@ -27,9 +189,14 @@ type TasksSectionProps = {
     taskOrder: number,
     completed: boolean,
   ) => Promise<void> | void;
+  onProjectPatch?: (patch: Partial<ProjectData>) => void;
 };
 
-export function TasksSection({ project, onTaskCompleted }: TasksSectionProps) {
+export function TasksSection({
+  project,
+  onTaskCompleted,
+  onProjectPatch,
+}: TasksSectionProps) {
   const { sessionToken } = useAuth();
 
   let parsedProject: Project | null = null;
@@ -41,11 +208,18 @@ export function TasksSection({ project, onTaskCompleted }: TasksSectionProps) {
 
   const phases =
     parsedProject?.project_wbs?.slice().sort((a, b) => a.order - b.order) ?? [];
-  const hasTasks = phases.some((p) => p.tasks?.length);
 
   const [pendingTask, setPendingTask] = useState<TaskRef | null>(null);
   const [detailEvent, setDetailEvent] = useState<CalendarEvent | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [newTaskPhaseOrder, setNewTaskPhaseOrder] = useState<number | null>(null);
+  const [newTaskName, setNewTaskName] = useState("");
+  const [newTaskDescription, setNewTaskDescription] = useState("");
+  const [newTaskDate, setNewTaskDate] = useState("");
+  const [newTaskTime, setNewTaskTime] = useState("");
+  const [newTaskEndTime, setNewTaskEndTime] = useState("");
+  const [creatingTask, setCreatingTask] = useState(false);
+  const [newTaskDatePickerOpen, setNewTaskDatePickerOpen] = useState(false);
 
   const projectSubtasks = useQuery(
     api.tasks.listSubtasksForProject,
@@ -90,23 +264,86 @@ export function TasksSection({ project, onTaskCompleted }: TasksSectionProps) {
     setPendingTask(null);
   };
 
-  if (!hasTasks) {
-    return (
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Tasks</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Manage and track project tasks
-        </p>
-        <div className="mt-6 flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-16 text-muted-foreground">
-          <CheckSquare className="mb-3 size-10" />
-          <p className="text-sm font-medium">No tasks yet</p>
-          <p className="mt-1 text-xs">
-            Generate the project from the sidebar to create tasks.
-          </p>
-        </div>
-      </div>
+  const openNewTaskDialog = (phaseOrder: number) => {
+    const todayIso = new Date().toISOString().slice(0, 10);
+    setNewTaskPhaseOrder(phaseOrder);
+    setNewTaskName("");
+    setNewTaskDescription("");
+    setNewTaskDate(todayIso);
+    setNewTaskTime("09:00");
+    setNewTaskEndTime(addOneHourFromTime("09:00"));
+    setNewTaskDatePickerOpen(false);
+  };
+
+  const closeNewTaskDialog = () => {
+    setNewTaskPhaseOrder(null);
+    setNewTaskDatePickerOpen(false);
+  };
+
+  const handleCreateTask = async () => {
+    if (
+      !sessionToken ||
+      !convexClient ||
+      !parsedProject ||
+      newTaskPhaseOrder === null
+    ) {
+      return;
+    }
+    const name = newTaskName.trim();
+    const date = newTaskDate.trim();
+    if (!name || !date) return;
+    const startParts = parseTime24(newTaskTime.trim()) ?? { h: 9, m: 0 };
+    const timeNorm = formatTime24(
+      startParts.h,
+      snapMinuteToStep(startParts.m),
     );
-  }
+    const endParts = parseTime24(newTaskEndTime.trim());
+    if (!endParts) return;
+    const endNorm = formatTime24(
+      endParts.h,
+      snapMinuteToStep(endParts.m),
+    );
+
+    setCreatingTask(true);
+    try {
+      const updated: Project = {
+        ...parsedProject,
+        project_wbs: parsedProject.project_wbs.map((phase) => {
+          if (phase.order !== newTaskPhaseOrder) return phase;
+          const tasks = (phase.tasks ?? []).slice().sort((a, b) => a.order - b.order);
+          const nextOrder =
+            tasks.length > 0 ? tasks[tasks.length - 1]!.order + 1 : 0;
+          const nextTasks = [
+            ...tasks,
+            {
+              order: nextOrder,
+              name,
+              description: newTaskDescription.trim(),
+              date,
+              time: timeNorm,
+              endTime: endNorm,
+              completed: false,
+            },
+          ];
+          return {
+            ...phase,
+            tasks: nextTasks,
+          };
+        }) as Project["project_wbs"],
+      };
+
+      const dataStr = JSON.stringify(updated);
+      await convexClient.mutation(api.projects.update, {
+        token: sessionToken,
+        projectId: project._id as Id<"projects">,
+        data: dataStr,
+      });
+      onProjectPatch?.({ data: dataStr });
+      closeNewTaskDialog();
+    } finally {
+      setCreatingTask(false);
+    }
+  };
 
   return (
     <div>
@@ -114,20 +351,39 @@ export function TasksSection({ project, onTaskCompleted }: TasksSectionProps) {
       <p className="mt-1 text-sm text-muted-foreground">
         Manage and track project tasks
       </p>
+      {!phases.length && (
+        <div className="mt-6 flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-16 text-muted-foreground">
+          <CheckSquare className="mb-3 size-10" />
+          <p className="text-sm font-medium">No phases yet</p>
+          <p className="mt-1 text-xs">
+            Start by adding phases in the Overview tab, then come back here to create tasks.
+          </p>
+        </div>
+      )}
       <div className="mt-6 space-y-6">
         {phases.map((phase, phaseIndex) => {
           const tasks = (phase.tasks ?? [])
             .slice()
             .sort((a, b) => a.order - b.order);
-          if (tasks.length === 0) return null;
           return (
             <div
               key={phaseIndex}
               className="rounded-xl border border-border bg-card p-4 sm:p-5"
             >
-              <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-                <Layers className="size-4" />
-                {phase.name}
+              <div className="flex items-center justify-between gap-2 text-sm font-medium text-muted-foreground">
+                <div className="flex items-center gap-2">
+                  <Layers className="size-4" />
+                  {phase.name}
+                </div>
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="outline"
+                  className="text-[11px] px-2 py-1"
+                  onClick={() => openNewTaskDialog(phase.order)}
+                >
+                  + Add task
+                </Button>
               </div>
               {phase.description ? (
                 <p className="mt-1 text-xs text-muted-foreground">
@@ -136,6 +392,13 @@ export function TasksSection({ project, onTaskCompleted }: TasksSectionProps) {
               ) : null}
               {/* Mobile: stacked task cards */}
               <div className="mt-3 space-y-2 md:hidden">
+                {tasks.length === 0 ? (
+                  <p className="rounded-lg border border-dashed border-border/60 bg-muted/20 px-3 py-6 text-center text-xs text-muted-foreground">
+                    No tasks in this phase yet. Tap{" "}
+                    <span className="font-medium text-foreground">+ Add task</span>{" "}
+                    above.
+                  </p>
+                ) : null}
                 {tasks.map((task) => {
                   const isCompleted = Boolean(
                     (task as { completed?: boolean }).completed,
@@ -149,7 +412,7 @@ export function TasksSection({ project, onTaskCompleted }: TasksSectionProps) {
                       key={key}
                       role="button"
                       tabIndex={0}
-                      className="w-full rounded-lg border border-border/70 bg-muted/30 p-3 text-left text-sm transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className="w-full min-w-0 rounded-lg border border-border/70 bg-muted/30 p-3 text-left text-sm transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       onClick={() =>
                         handleRequestToggle({
                           phaseOrder: phase.order,
@@ -171,22 +434,29 @@ export function TasksSection({ project, onTaskCompleted }: TasksSectionProps) {
                       }}
                     >
                       <div className="flex items-start justify-between gap-2">
-                        <div className="flex items-center gap-2">
+                        <div className="flex min-w-0 flex-1 items-start gap-2">
                           {isCompleted ? (
-                            <CheckCircle2 className="size-4 text-emerald-500" />
+                            <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-500" />
                           ) : (
-                            <Circle className="size-4 text-muted-foreground" />
+                            <Circle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
                           )}
-                          <div>
-                            <p className="text-sm font-medium">{task.name}</p>
-                            <p className="mt-0.5 text-[11px] text-muted-foreground">
-                              #{task.order + 1} · {task.date} ·{" "}
-                              {(task as { endTime?: string }).endTime
-                                ? `${task.time} – ${
-                                    (task as { endTime?: string }).endTime
-                                  }`
-                                : task.time}
+                          <div className="min-w-0 flex-1">
+                            <p className="break-words text-sm font-medium leading-snug">
+                              {task.name}
                             </p>
+                            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                              <span className="inline-flex shrink-0 rounded-md bg-muted/70 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-foreground/85">
+                                #{task.order + 1}
+                              </span>
+                              <span className="inline-flex max-w-full shrink-0 items-center rounded-md border border-border/60 bg-background/90 px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground">
+                                {formatTaskDateLabel(task.date)}
+                              </span>
+                              <span className="inline-flex min-w-0 max-w-full items-center rounded-md border border-border/60 bg-background/90 px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground">
+                                {(task as { endTime?: string }).endTime
+                                  ? `${task.time} – ${(task as { endTime?: string }).endTime}`
+                                  : task.time}
+                              </span>
+                            </div>
                           </div>
                         </div>
                         <Button
@@ -265,14 +535,22 @@ export function TasksSection({ project, onTaskCompleted }: TasksSectionProps) {
 
               {/* Desktop: table layout */}
               <div className="mt-3 hidden md:block">
+                {tasks.length === 0 ? (
+                  <p className="rounded-lg border border-dashed border-border/60 bg-muted/20 px-3 py-8 text-center text-sm text-muted-foreground">
+                    No tasks in this phase yet. Use{" "}
+                    <span className="font-medium text-foreground">+ Add task</span>{" "}
+                    to create one.
+                  </p>
+                ) : (
                 <Table className="text-sm">
                   <TableHeader>
                     <TableRow>
                       <TableHead className="w-10">Status</TableHead>
                       <TableHead className="w-8">#</TableHead>
-                      <TableHead>Task</TableHead>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Time</TableHead>
+                      <TableHead className="min-w-[8rem]">Task</TableHead>
+                      <TableHead className="min-w-[9rem] max-w-[11rem]">
+                        When
+                      </TableHead>
                       <TableHead className="w-20 text-right">Details</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -307,18 +585,22 @@ export function TasksSection({ project, onTaskCompleted }: TasksSectionProps) {
                             <TableCell className="w-8 font-medium text-muted-foreground">
                               {task.order + 1}
                             </TableCell>
-                            <TableCell className="font-medium">
-                              {task.name}
+                            <TableCell className="max-w-[min(28rem,45vw)] font-medium">
+                              <span className="line-clamp-2 break-words">
+                                {task.name}
+                              </span>
                             </TableCell>
-                            <TableCell className="text-muted-foreground">
-                              {task.date}
-                            </TableCell>
-                            <TableCell className="text-muted-foreground">
-                              {(task as { endTime?: string }).endTime
-                                ? `${task.time} – ${
-                                    (task as { endTime?: string }).endTime
-                                  }`
-                                : task.time}
+                            <TableCell className="align-top text-muted-foreground">
+                              <div className="flex min-w-0 flex-col gap-0.5 text-xs leading-tight">
+                                <span className="tabular-nums">
+                                  {formatTaskDateLabel(task.date)}
+                                </span>
+                                <span className="break-words text-[11px] opacity-90">
+                                  {(task as { endTime?: string }).endTime
+                                    ? `${task.time} – ${(task as { endTime?: string }).endTime}`
+                                    : task.time}
+                                </span>
+                              </div>
                             </TableCell>
                             <TableCell className="text-right">
                               <Button
@@ -364,7 +646,7 @@ export function TasksSection({ project, onTaskCompleted }: TasksSectionProps) {
                           </TableRow>
                           {subtasksForTask.length > 0 && (
                             <TableRow className="bg-muted/30">
-                              <TableCell colSpan={6} className="align-top">
+                              <TableCell colSpan={5} className="align-top">
                                 <div className="pl-8 space-y-1">
                                   {subtasksForTask.map((subtask) => (
                                     <div
@@ -395,6 +677,7 @@ export function TasksSection({ project, onTaskCompleted }: TasksSectionProps) {
                     })}
                   </TableBody>
                 </Table>
+                )}
               </div>
             </div>
           );
@@ -429,6 +712,136 @@ export function TasksSection({ project, onTaskCompleted }: TasksSectionProps) {
         open={detailOpen}
         onOpenChange={setDetailOpen}
       />
+
+      <Dialog
+        open={newTaskPhaseOrder !== null}
+        onOpenChange={(open) => {
+          if (!open) closeNewTaskDialog();
+        }}
+      >
+        <DialogContent
+          showCloseButton
+          className={cn(
+            "flex max-h-[min(92dvh,92vh)] w-[min(100%,calc(100vw-1rem))] max-w-md flex-col gap-0 overflow-hidden border-border bg-card p-0 sm:max-w-md",
+          )}
+        >
+          <DialogHeader className="shrink-0 space-y-1 border-b border-border bg-muted/30 px-6 py-4 pr-14 text-left">
+            <DialogTitle className="text-lg">New task</DialogTitle>
+            <DialogDescription>
+              Set when this task happens. You can edit details later from the
+              task menu.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-5">
+            <div className="space-y-5">
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-muted-foreground">
+                  Title
+                </label>
+                <Input
+                  autoFocus
+                  placeholder="What needs to be done?"
+                  value={newTaskName}
+                  onChange={(e) => setNewTaskName(e.target.value)}
+                  className="h-10 bg-background"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-muted-foreground">
+                  Description{" "}
+                  <span className="font-normal opacity-80">(optional)</span>
+                </label>
+                <Textarea
+                  rows={3}
+                  placeholder="Context, acceptance criteria, links…"
+                  value={newTaskDescription}
+                  onChange={(e) => setNewTaskDescription(e.target.value)}
+                  className="resize-none bg-background text-sm"
+                />
+              </div>
+              <div className="space-y-4 rounded-xl border border-border bg-muted/20 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Schedule
+                </p>
+                <div className="space-y-2">
+                  <span className="text-xs font-medium text-muted-foreground">
+                    Date
+                  </span>
+                  <Popover
+                    open={newTaskDatePickerOpen}
+                    onOpenChange={setNewTaskDatePickerOpen}
+                  >
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-10 w-full justify-start gap-2 border-border bg-background text-left font-normal"
+                      >
+                        <CalendarClock className="size-4 shrink-0 text-muted-foreground" />
+                        <span className="truncate">
+                          {parseISODate(newTaskDate)
+                            ? parseISODate(newTaskDate)!.toLocaleDateString(
+                                "en-US",
+                                {
+                                  weekday: "short",
+                                  month: "short",
+                                  day: "numeric",
+                                  year: "numeric",
+                                },
+                              )
+                            : "Pick a date"}
+                        </span>
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={parseISODate(newTaskDate)}
+                        onSelect={(d) => {
+                          if (d) {
+                            setNewTaskDate(d.toISOString().slice(0, 10));
+                            setNewTaskDatePickerOpen(false);
+                          }
+                        }}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+                <ScheduleTimeSelects
+                  label="Start time"
+                  value={newTaskTime}
+                  onChange={setNewTaskTime}
+                />
+                <div className="space-y-2 border-t border-border/60 pt-4">
+                  <ScheduleTimeSelects
+                    label="End time"
+                    value={newTaskEndTime}
+                    onChange={setNewTaskEndTime}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+          <DialogFooter
+            className={cn(
+              "shrink-0 gap-2 border-t border-border bg-muted/20 px-6 py-4 sm:justify-end",
+              "pb-[max(1rem,env(safe-area-inset-bottom))]",
+            )}
+          >
+            <Button
+              variant="outline"
+              onClick={closeNewTaskDialog}
+              disabled={creatingTask}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleCreateTask} disabled={creatingTask}>
+              {creatingTask ? "Creating…" : "Create task"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

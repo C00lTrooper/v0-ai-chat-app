@@ -75,18 +75,11 @@ export function useTimelinePhaseDrag(options: UseTimelinePhaseDragOptions) {
         let newEnd = new Date(originalEnd);
 
         if (payload.mode === "move") {
+          // Move start and end by the exact same day delta to preserve duration.
           newStart = new Date(originalStart);
+          newEnd = new Date(originalEnd);
           newStart.setDate(newStart.getDate() + deltaDays);
-          const durationDays =
-            Math.max(
-              1,
-              Math.round(
-                (originalEnd.getTime() - originalStart.getTime()) /
-                  86_400_000,
-              ) + 1,
-            );
-          newEnd = new Date(newStart);
-          newEnd.setDate(newEnd.getDate() + durationDays - 1);
+          newEnd.setDate(newEnd.getDate() + deltaDays);
         } else if (payload.mode === "resize-left") {
           const candidate = new Date(originalStart);
           candidate.setDate(candidate.getDate() + deltaDays);
@@ -104,6 +97,20 @@ export function useTimelinePhaseDrag(options: UseTimelinePhaseDragOptions) {
             newEnd = new Date(originalStart);
           }
         }
+
+        const newDurationDays =
+          Math.round(
+            (newEnd.getTime() - newStart.getTime()) / 86_400_000,
+          ) + 1;
+        console.log("[TimelineDrag] drop compute", {
+          phaseId: payload.phaseId,
+          mode: payload.mode,
+          pixelDeltaX,
+          deltaDays,
+          newStartDate: newStart.toISOString(),
+          newEndDate: newEnd.toISOString(),
+          newDurationDays,
+        });
 
         onDrop({
           movedPhaseId: payload.phaseId,
@@ -135,13 +142,27 @@ export function useTimelinePhaseDrag(options: UseTimelinePhaseDragOptions) {
       }))
       .sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
 
+    const originalStart = new Date(phase.startDate);
+    const originalEnd = new Date(phase.endDate);
+    const originalDurationDays =
+      Math.round(
+        (originalEnd.getTime() - originalStart.getTime()) / 86_400_000,
+      ) + 1;
+    console.log("[TimelineDrag] drag start", {
+      phaseId: args.phaseId,
+      mode: args.mode,
+      originalStartDate: originalStart.toISOString(),
+      originalEndDate: originalEnd.toISOString(),
+      originalDurationDays,
+    });
+
     beginDrag({
       payload: {
         phaseId: args.phaseId,
         mode: args.mode,
         row: phase.row,
-        originalStartDate: new Date(phase.startDate),
-        originalEndDate: new Date(phase.endDate),
+        originalStartDate: originalStart,
+        originalEndDate: originalEnd,
         rowPhasesSnapshot,
       },
       startClientX: args.clientX,
@@ -161,7 +182,8 @@ export function useTimelinePhaseDrag(options: UseTimelinePhaseDragOptions) {
     const basePhase = phasesById.get(phaseId);
     if (!basePhase) return null;
 
-    const deltaDays = Math.round(dragState.deltaX / dayWidth);
+    const pixelDeltaX = dragState.deltaX;
+    const deltaDays = Math.round(pixelDeltaX / dayWidth);
     const originalStart = payload.originalStartDate;
     const originalEnd = payload.originalEndDate;
 
@@ -169,17 +191,9 @@ export function useTimelinePhaseDrag(options: UseTimelinePhaseDragOptions) {
     let end = new Date(originalEnd);
 
     if (payload.mode === "move") {
+      // Preview: shift both start and end by the same rounded day delta.
       start.setDate(start.getDate() + deltaDays);
-      const durationDays =
-        Math.max(
-          1,
-          Math.round(
-            (originalEnd.getTime() - originalStart.getTime()) /
-              86_400_000,
-          ) + 1,
-        );
-      end = new Date(start);
-      end.setDate(end.getDate() + durationDays - 1);
+      end.setDate(end.getDate() + deltaDays);
     } else if (payload.mode === "resize-left") {
       const candidate = new Date(originalStart);
       candidate.setDate(candidate.getDate() + deltaDays);
@@ -197,6 +211,18 @@ export function useTimelinePhaseDrag(options: UseTimelinePhaseDragOptions) {
         end = new Date(originalStart);
       }
     }
+
+    const previewDurationDays =
+      Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
+    console.log("[TimelineDrag] preview frame", {
+      phaseId,
+      mode: payload.mode,
+      pixelDeltaX,
+      deltaDays,
+      previewStartDate: start.toISOString(),
+      previewEndDate: end.toISOString(),
+      previewDurationDays,
+    });
 
     return {
       phaseId,

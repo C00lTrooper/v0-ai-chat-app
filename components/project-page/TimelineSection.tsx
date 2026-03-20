@@ -114,8 +114,9 @@ export function TimelineSection({ project }: TimelineSectionProps) {
   const [viewAll, setViewAll] = useState(false);
   const [allPhases, setAllPhases] = useState<PhaseWithLayout[] | null>(null);
   const [loadingAll, setLoadingAll] = useState(false);
-  const [optimisticPhases, setOptimisticPhases] =
-    useState<PhaseWithLayout[] | null>(null);
+  const [optimisticPhases, setOptimisticPhases] = useState<
+    PhaseWithLayout[] | null
+  >(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -220,7 +221,7 @@ export function TimelineSection({ project }: TimelineSectionProps) {
   }, [viewAll, sessionToken]);
 
   const phases = viewAll ? (allPhases ?? []) : projectPhases;
-  const editablePhases = viewAll ? phases : optimisticPhases ?? phases;
+  const editablePhases = viewAll ? phases : (optimisticPhases ?? phases);
 
   const hasPhases = phases.length > 0;
 
@@ -262,7 +263,9 @@ export function TimelineSection({ project }: TimelineSectionProps) {
   const dayWidth = zoom === "day" ? 72 : 24;
   const totalWidth = totalDays * dayWidth;
   const ROW_HEIGHT = 72;
-  const maxRow = hasPhases ? Math.max(...phases.map((p) => p.row)) : 0;
+  const maxRow = hasPhases
+    ? Math.max(...editablePhases.map((p) => p.row))
+    : 0;
   const rows = maxRow + 1;
   const rowsHeight = rows * ROW_HEIGHT;
   const chartHeight = rowsHeight + 32;
@@ -386,133 +389,73 @@ export function TimelineSection({ project }: TimelineSectionProps) {
     dayWidth,
     phases: phaseLayouts,
     onClick: (phaseId) => {
-      const found = editablePhases.find(
-        (p) => `${p.phase.order}` === phaseId,
-      );
+      const found = editablePhases.find((p) => `${p.phase.order}` === phaseId);
       if (found) setSelectedPhase(found);
     },
-    onDrop: async ({
-      movedPhaseId,
-      mode,
-      newStartDate,
-      newEndDate,
-      rowPhasesSnapshot,
-    }) => {
+    onDrop: async ({ movedPhaseId, mode, newStartDate, newEndDate }) => {
       if (viewAll) return;
 
       const movedOrder = Number(movedPhaseId);
       if (Number.isNaN(movedOrder)) return;
 
-      const rowCopy = rowPhasesSnapshot
-        .map((p) => ({
-          ...p,
-          startDate: new Date(p.startDate),
-          endDate: new Date(p.endDate),
-        }))
-        .sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
+      // Update only the moved phase's dates; allow overlaps freely.
+      const updatedPhases: PhaseWithLayout[] = editablePhases.map((p) =>
+        p.phase.order === movedOrder
+          ? {
+              ...p,
+              startDate: new Date(newStartDate),
+              endDate: new Date(newEndDate),
+            }
+          : p,
+      );
 
-      const idx = rowCopy.findIndex((p) => p.id === movedPhaseId);
-      if (idx === -1) return;
-
-      rowCopy[idx].startDate = new Date(newStartDate);
-      rowCopy[idx].endDate = new Date(newEndDate);
-
-      rowCopy.sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
-
-      const dayMs = 86_400_000;
-
-      const isAnchored = (phase: PhaseWithLayout) =>
-        (phase.phase as any).anchored === true;
-
-      // Forward cascade: nudge later phases forward to resolve overlaps
-      for (let i = 0; i < rowCopy.length - 1; i++) {
-        const current = rowCopy[i];
-        const next = rowCopy[i + 1];
-
-        const currentEndMs = current.endDate.getTime();
-        const nextStartMs = next.startDate.getTime();
-
-        if (currentEndMs >= nextStartMs) {
-          const originalNext = editablePhases.find(
-            (p) => `${p.phase.order}` === next.id,
-          );
-          if (originalNext && isAnchored(originalNext)) {
-            continue;
-          }
-
-          const durationDays =
-            Math.max(
-              1,
-              Math.round(
-                (next.endDate.getTime() - next.startDate.getTime()) / dayMs,
-              ) + 1,
-            );
-
-          const overlapDays =
-            Math.floor((currentEndMs - nextStartMs) / dayMs) + 1;
-          const shiftDays = Math.max(1, overlapDays);
-
-          next.startDate = new Date(next.startDate);
-          next.startDate.setDate(next.startDate.getDate() + shiftDays);
-          next.endDate = new Date(next.startDate);
-          next.endDate.setDate(next.endDate.getDate() + durationDays - 1);
-        }
+      const movedPhase = updatedPhases.find((p) => p.phase.order === movedOrder);
+      if (movedPhase) {
+        const durationDays =
+          Math.round(
+            (movedPhase.endDate.getTime() - movedPhase.startDate.getTime()) /
+              86_400_000,
+          ) + 1;
+        console.log("[TimelineDrop] before layout", {
+          movedPhaseId,
+          mode,
+          startDate: movedPhase.startDate.toISOString(),
+          endDate: movedPhase.endDate.toISOString(),
+          durationDays,
+        });
       }
 
-      // Backward cascade: nudge previous phases backward if needed
-      for (let i = rowCopy.length - 1; i > 0; i--) {
-        const current = rowCopy[i];
-        const prev = rowCopy[i - 1];
+      // Recompute row layout so overlapping phases are stacked in separate rows.
+      const laidOut = assignRows(
+        updatedPhases.map((p) => ({
+          ...p,
+        })),
+      );
 
-        const prevEndMs = prev.endDate.getTime();
-        const currentStartMs = current.startDate.getTime();
-
-        if (prevEndMs >= currentStartMs) {
-          const originalPrev = editablePhases.find(
-            (p) => `${p.phase.order}` === prev.id,
-          );
-          if (originalPrev && isAnchored(originalPrev)) {
-            continue;
-          }
-
-          const durationDays =
-            Math.max(
-              1,
-              Math.round(
-                (prev.endDate.getTime() - prev.startDate.getTime()) / dayMs,
-              ) + 1,
-            );
-
-          const overlapDays =
-            Math.floor((prevEndMs - currentStartMs) / dayMs) + 1;
-          const shiftDays = Math.max(1, overlapDays);
-
-          prev.endDate = new Date(prev.endDate);
-          prev.endDate.setDate(prev.endDate.getDate() - shiftDays);
-          prev.startDate = new Date(prev.endDate);
-          prev.startDate.setDate(prev.startDate.getDate() - durationDays + 1);
-        }
+      const laidOutMoved = laidOut.find((p) => p.phase.order === movedOrder);
+      if (laidOutMoved) {
+        const durationDaysAfterLayout =
+          Math.round(
+            (laidOutMoved.endDate.getTime() -
+              laidOutMoved.startDate.getTime()) /
+              86_400_000,
+          ) + 1;
+        console.log("[TimelineDrop] after layout / optimistic", {
+          movedPhaseId,
+          mode,
+          startDate: laidOutMoved.startDate.toISOString(),
+          endDate: laidOutMoved.endDate.toISOString(),
+          durationDays: durationDaysAfterLayout,
+        });
       }
 
-      const updatedPhases: PhaseWithLayout[] = editablePhases.map((p) => {
-        const match = rowCopy.find((rp) => rp.id === `${p.phase.order}`);
-        if (!match) return p;
-        return {
-          ...p,
-          startDate: new Date(match.startDate),
-          endDate: new Date(match.endDate),
-        };
-      });
-
-      setOptimisticPhases(updatedPhases);
+      setOptimisticPhases(laidOut);
 
       if (!sessionToken || !convexClient) return;
 
       let parsed: Project | null = null;
       try {
-        parsed = project.data
-          ? (JSON.parse(project.data) as Project)
-          : null;
+        parsed = project.data ? (JSON.parse(project.data) as Project) : null;
       } catch {
         toast({
           variant: "destructive",
@@ -528,9 +471,7 @@ export function TimelineSection({ project }: TimelineSectionProps) {
       }
 
       const newWbs = parsed.project_wbs.map((phase) => {
-        const match = updatedPhases.find(
-          (p) => p.phase.order === phase.order,
-        );
+        const match = updatedPhases.find((p) => p.phase.order === phase.order);
         if (!match) return phase;
         return {
           ...phase,
@@ -545,11 +486,36 @@ export function TimelineSection({ project }: TimelineSectionProps) {
       };
       const dataStr = JSON.stringify(updatedProject);
 
+      console.log("[TimelineDrop] before save", {
+        movedPhaseId,
+        mode,
+        projectId: project._id,
+        phases: newWbs.map((phase) => {
+          const start = new Date(phase.start_date);
+          const end = new Date(phase.end_date);
+          const durationDays =
+            Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
+          return {
+            order: phase.order,
+            name: phase.name,
+            startDate: phase.start_date,
+            endDate: phase.end_date,
+            durationDays,
+          };
+        }),
+      });
+
       try {
-        await convexClient.mutation(api.projects.update, {
+        const result = await convexClient.mutation(api.projects.update, {
           token: sessionToken,
           projectId: project._id as Id<"projects">,
           data: dataStr,
+        });
+        console.log("[TimelineDrop] after save", {
+          movedPhaseId,
+          mode,
+          projectId: project._id,
+          result,
         });
       } catch {
         setOptimisticPhases(null);
@@ -569,8 +535,9 @@ export function TimelineSection({ project }: TimelineSectionProps) {
 
   const runSync = useCallback(
     async (reason: string) => {
+      const client = convexClient;
       if (!sessionToken) return;
-      if (!convexClient) return;
+      if (!client) return;
       if (syncInFlightRef.current) return;
       if (!outOfSync) return;
       if (viewAll) return;
@@ -590,20 +557,21 @@ export function TimelineSection({ project }: TimelineSectionProps) {
 
       try {
         const projectId = project._id as Id<"projects">;
-        await convexClient.action(api.scheduling.runProjectSchedulingEngine, {
+        await client.action(api.scheduling.runProjectSchedulingEngine, {
           token: sessionToken,
           projectId,
         });
 
         toast({
           title: "Tasks updated",
-          description: "Timeline tasks have been rescheduled to match the phase dates.",
+          description:
+            "Timeline tasks have been rescheduled to match the phase dates.",
           action: (
             <ToastAction
               altText="Undo task rescheduling"
               onClick={async () => {
                 try {
-                  await convexClient.mutation(
+                    await client.mutation(
                     api.scheduling.undoLastProjectSchedulingRun,
                     {
                       token: sessionToken,
@@ -707,7 +675,8 @@ export function TimelineSection({ project }: TimelineSectionProps) {
           <GanttChart className="mb-3 size-10" />
           <p className="text-sm font-medium">No phases yet</p>
           <p className="mt-1 text-xs">
-            Generate the project from the sidebar to create phases and tasks.
+            Start by adding phases manually, or use the sidebar generator to
+            create a draft plan.
           </p>
           {project.isOwner && (
             <Button variant="outline" size="sm" className="mt-4">

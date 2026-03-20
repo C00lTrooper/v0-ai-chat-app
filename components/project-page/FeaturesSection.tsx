@@ -247,21 +247,6 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
     setOptimisticallyHiddenTasks(new Set());
   };
 
-  if (!parsedProject) {
-    return (
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Features</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Define high-level features grouped by project phases.
-        </p>
-        <p className="mt-4 text-sm text-muted-foreground">
-          Project data is not available yet. Generate a plan from the sidebar
-          to start defining phases and tasks.
-        </p>
-      </div>
-    );
-  }
-
   return (
     <div>
       <div className="flex items-center justify-between gap-4">
@@ -272,6 +257,17 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
           </p>
         </div>
       </div>
+
+      {!parsedProject || phases.length === 0 ? (
+        <div className="mt-6 rounded-xl border border-dashed border-border bg-muted/10 px-4 py-6 text-sm text-muted-foreground">
+          <p className="font-medium text-foreground">No phases yet</p>
+          <p className="mt-1 text-xs">
+            Start by defining project phases in the Overview tab, or use the sidebar
+            generator to create a draft plan. Once phases exist, you&apos;ll be able
+            to organize features by phase here.
+          </p>
+        </div>
+      ) : null}
 
       <div className="mt-6 space-y-4">
         {phases.map((phase) => {
