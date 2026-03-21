@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useQuery } from "convex/react";
 import { useAuth } from "@/components/auth-provider";
 import { useLastVisitedProject } from "@/components/last-visited-project-provider";
 import { convexClient } from "@/lib/convex";
@@ -103,7 +104,6 @@ function SectionContent({
   section,
   project,
   onTaskCompleted,
-  onProjectPatch,
 }: {
   section: Section;
   project: ProjectData;
@@ -112,13 +112,10 @@ function SectionContent({
     taskOrder: number,
     completed: boolean,
   ) => Promise<void> | void;
-  onProjectPatch?: (patch: Partial<ProjectData>) => void;
 }) {
   switch (section) {
     case "overview":
-      return (
-        <OverviewSection project={project} onProjectPatch={onProjectPatch} />
-      );
+      return <OverviewSection project={project} />;
     case "features":
       return <FeaturesSection project={project} />;
     case "tasks":
@@ -126,7 +123,6 @@ function SectionContent({
         <TasksSection
           project={project}
           onTaskCompleted={onTaskCompleted}
-          onProjectPatch={onProjectPatch}
         />
       );
     case "chat":
@@ -148,8 +144,6 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
   const { isAuthenticated, sessionToken } = useAuth();
   const router = useRouter();
   const lastVisitedCtx = useLastVisitedProject();
-  const [project, setProject] = useState<ProjectData | null>(null);
-  const [loading, setLoading] = useState(true);
   const [activeSection, setActiveSection] = useState<Section>("overview");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
@@ -165,53 +159,31 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
 
   const sidebarMinimized = isMobile || sidebarCollapsed;
 
+  const project = useQuery(
+    api.projects.getById,
+    sessionToken && isAuthenticated
+      ? { token: sessionToken, projectId: projectId as Id<"projects"> }
+      : "skip",
+  );
+
+  const loading =
+    Boolean(sessionToken && isAuthenticated) && project === undefined;
+
   useEffect(() => {
     if (!isAuthenticated || !sessionToken) {
       router.replace("/login");
-      return;
     }
+  }, [isAuthenticated, sessionToken, router]);
 
-    if (!convexClient) return;
-
-    let cancelled = false;
-
-    void (async () => {
-      try {
-        const result = await convexClient.query(api.projects.getById, {
-          token: sessionToken,
-          projectId: projectId as Id<"projects">,
-        });
-        if (cancelled) return;
-
-        if (result) {
-          setProject(result);
-        } else {
-          toast({
-            variant: "destructive",
-            title: "You don't have access to this project.",
-          });
-          router.replace("/projects");
-        }
-      } catch (err) {
-        if (cancelled) return;
-        if (err instanceof Error && err.message.includes("Unauthenticated")) {
-          router.replace("/login");
-        } else {
-          toast({
-            variant: "destructive",
-            title: "You don't have access to this project.",
-          });
-          router.replace("/projects");
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [projectId, isAuthenticated, sessionToken, router]);
+  useEffect(() => {
+    if (project === null && sessionToken && isAuthenticated) {
+      toast({
+        variant: "destructive",
+        title: "You don't have access to this project.",
+      });
+      router.replace("/projects");
+    }
+  }, [project, sessionToken, isAuthenticated, router]);
 
   useEffect(() => {
     if (project) {
@@ -288,14 +260,6 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
         projectId: project._id as Id<"projects">,
         data: dataStr,
       });
-      setProject((prev) =>
-        prev
-          ? {
-              ...prev,
-              data: dataStr,
-            }
-          : prev,
-      );
     } catch {
       toast({
         variant: "destructive",
@@ -512,17 +476,6 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
         data: JSON.stringify(normalizedData),
         ...(shouldUpdateTargetDate && { targetDate: generatedTargetDate }),
       });
-      setProject((prev) =>
-        prev
-          ? {
-              ...prev,
-              data: JSON.stringify(normalizedData),
-              ...(shouldUpdateTargetDate && {
-                targetDate: generatedTargetDate,
-              }),
-            }
-          : null,
-      );
       toast({
         title: "Project generated",
         description: "WBS and tasks have been created.",
@@ -530,10 +483,6 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
     } finally {
       setGenerating(false);
     }
-  };
-
-  const handleProjectPatch = (patch: Partial<ProjectData>) => {
-    setProject((prev) => (prev ? { ...prev, ...patch } : prev));
   };
 
   return (
@@ -657,7 +606,6 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
             section={activeSection}
             project={project}
             onTaskCompleted={handleTaskCompleted}
-            onProjectPatch={handleProjectPatch}
           />
         </main>
       </div>

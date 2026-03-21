@@ -57,13 +57,11 @@ function isIncompleteProjectData(p: Project | null): boolean {
 type OverviewSectionProps = {
   project: ProjectData;
   onTargetDateChange?: (newDate: string) => void;
-  onProjectPatch?: (patch: Partial<ProjectData>) => void;
 };
 
 export function OverviewSection({
   project,
   onTargetDateChange,
-  onProjectPatch,
 }: OverviewSectionProps) {
   const { sessionToken } = useAuth();
   const updateProject = useMutation(api.projects.update);
@@ -98,7 +96,6 @@ export function OverviewSection({
       });
       setSelectedDate(date);
       onTargetDateChange?.(iso);
-      onProjectPatch?.({ targetDate: iso });
       toast({ title: "Target date updated." });
     } catch {
       toast({
@@ -201,7 +198,6 @@ export function OverviewSection({
         projectId: project._id as Id<"projects">,
         data: JSON.stringify(updatedProject),
       });
-      onProjectPatch?.({ data: JSON.stringify(updatedProject) });
 
       setFeatures(
         [...updatedProject.project_wbs].sort((a, b) =>
@@ -416,7 +412,6 @@ export function OverviewSection({
                         projectId: project._id as Id<"projects">,
                         objective: objectiveDraft,
                       });
-                      onProjectPatch?.({ objective: objectiveDraft });
                       toast({ title: "Objective updated." });
                       setEditingObjective(false);
                     } catch {

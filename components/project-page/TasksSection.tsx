@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useQuery } from "convex/react";
 import {
   CheckSquare,
@@ -51,17 +51,77 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  ScheduleTimeSelects,
+  addOneHourFromTime,
+  formatTime24,
+  parseTime24,
+  snapMinuteToStep,
+} from "@/components/schedule-time-selects";
 import { TaskDetailDialog } from "@/components/calendar/task-detail-dialog";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/auth-provider";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import type { CalendarEvent } from "@/lib/calendar-utils";
+import { dateKey, type CalendarEvent } from "@/lib/calendar-utils";
 import type { Project } from "@/lib/project-schema";
 import type { ProjectData } from "@/components/project-page/types";
 import { UNASSIGNED_PHASE_ORDER } from "@/lib/task-phase-date";
 import { convexClient } from "@/lib/convex";
 import { projectPrimaryButtonClassName } from "@/lib/project-primary-button";
+
+function buildCalendarEventForTask(
+  project: ProjectData,
+  parsed: Project,
+  phaseOrder: number,
+  taskOrder: number,
+): CalendarEvent | null {
+  if (phaseOrder === UNASSIGNED_PHASE_ORDER) {
+    const task = (parsed.unassigned_tasks ?? []).find(
+      (t) => t.order === taskOrder,
+    );
+    if (!task) return null;
+    const taskWithEnd = task as { endTime?: string; description?: string };
+    const date = new Date(task.date + "T00:00:00");
+    const isCompleted = Boolean((task as { completed?: boolean }).completed);
+    return {
+      id: `${project._id}-${phaseOrder}-${task.order}`,
+      projectId: project._id,
+      projectName: project.projectName || project.summaryName,
+      phaseName: "Unassigned",
+      taskName: task.name,
+      taskDescription: taskWithEnd.description,
+      date,
+      timeStr: task.time,
+      ...(taskWithEnd.endTime ? { endTimeStr: taskWithEnd.endTime } : {}),
+      colorIndex: 0,
+      completed: isCompleted,
+      phaseOrder,
+      taskOrder: task.order,
+    };
+  }
+  const phase = parsed.project_wbs?.find((p) => p.order === phaseOrder);
+  const task = phase?.tasks?.find((t) => t.order === taskOrder);
+  if (!phase || !task) return null;
+  const taskWithEnd = task as { endTime?: string; description?: string };
+  const date = new Date(task.date + "T00:00:00");
+  const isCompleted = Boolean((task as { completed?: boolean }).completed);
+  return {
+    id: `${project._id}-${phase.order}-${task.order}`,
+    projectId: project._id,
+    projectName: project.projectName || project.summaryName,
+    phaseName: phase.name,
+    taskName: task.name,
+    taskDescription: taskWithEnd.description,
+    date,
+    timeStr: task.time,
+    ...(taskWithEnd.endTime ? { endTimeStr: taskWithEnd.endTime } : {}),
+    colorIndex: 0,
+    completed: isCompleted,
+    phaseOrder: phase.order,
+    taskOrder: task.order,
+  };
+}
 
 function parseISODate(s: string): Date | undefined {
   const t = s?.trim();
@@ -80,122 +140,6 @@ function formatTaskDateLabel(iso: string): string {
   });
 }
 
-const MINUTE_STEP = 5;
-const MINUTE_OPTIONS = Array.from(
-  { length: 60 / MINUTE_STEP },
-  (_, i) => i * MINUTE_STEP,
-);
-
-function parseTime24(s: string): { h: number; m: number } | null {
-  const t = s?.trim();
-  if (!t) return null;
-  const match = t.match(/^(\d{1,2}):(\d{2})$/);
-  if (!match) return null;
-  const h = parseInt(match[1], 10);
-  const min = parseInt(match[2], 10);
-  if (
-    Number.isNaN(h) ||
-    Number.isNaN(min) ||
-    h < 0 ||
-    h > 23 ||
-    min < 0 ||
-    min > 59
-  ) {
-    return null;
-  }
-  return { h, m: min };
-}
-
-function formatTime24(h: number, m: number): string {
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-}
-
-function snapMinuteToStep(m: number, step = MINUTE_STEP): number {
-  const s = Math.round(m / step) * step;
-  return Math.min(55, Math.max(0, s));
-}
-
-function formatHour12Label(h24: number): string {
-  if (h24 === 0) return "12 AM";
-  if (h24 < 12) return `${h24} AM`;
-  if (h24 === 12) return "12 PM";
-  return `${h24 - 12} PM`;
-}
-
-function addOneHourFromTime(hhmm: string): string {
-  const p = parseTime24(hhmm);
-  if (!p) return "10:00";
-  const d = new Date(1970, 0, 1, p.h, p.m, 0, 0);
-  d.setHours(d.getHours() + 1);
-  return formatTime24(d.getHours(), snapMinuteToStep(d.getMinutes()));
-}
-
-function ScheduleTimeSelects({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  const p = parseTime24(value);
-  const h = p?.h ?? 9;
-  const m = snapMinuteToStep(p?.m ?? 0);
-
-  return (
-    <div className="space-y-2">
-      {label ? (
-        <span className="text-xs font-medium text-muted-foreground">
-          {label}
-        </span>
-      ) : null}
-      <div className="flex min-w-0 gap-2">
-        <Select
-          value={String(h)}
-          onValueChange={(hv) => {
-            const nh = parseInt(hv, 10);
-            const cur = parseTime24(value);
-            const mm = snapMinuteToStep(cur?.m ?? 0);
-            onChange(formatTime24(nh, mm));
-          }}
-        >
-          <SelectTrigger className="h-10 min-w-0 flex-1 bg-background">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent className="z-[100] max-h-60">
-            {Array.from({ length: 24 }, (_, i) => (
-              <SelectItem key={i} value={String(i)}>
-                {formatHour12Label(i)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select
-          value={String(m)}
-          onValueChange={(mv) => {
-            const nm = parseInt(mv, 10);
-            const cur = parseTime24(value);
-            const hh = cur?.h ?? 9;
-            onChange(formatTime24(hh, nm));
-          }}
-        >
-          <SelectTrigger className="h-10 w-[104px] shrink-0 bg-background tabular-nums">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent className="z-[100] max-h-60">
-            {MINUTE_OPTIONS.map((min) => (
-              <SelectItem key={min} value={String(min)}>
-                :{String(min).padStart(2, "0")}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-    </div>
-  );
-}
-
 type TaskRef = {
   phaseOrder: number;
   taskOrder: number;
@@ -210,13 +154,11 @@ type TasksSectionProps = {
     taskOrder: number,
     completed: boolean,
   ) => Promise<void> | void;
-  onProjectPatch?: (patch: Partial<ProjectData>) => void;
 };
 
 export function TasksSection({
   project,
   onTaskCompleted,
-  onProjectPatch,
 }: TasksSectionProps) {
   const { sessionToken } = useAuth();
 
@@ -251,6 +193,47 @@ export function TasksSection({
       ? { token: sessionToken, projectId: project._id as Id<"projects"> }
       : "skip",
   );
+
+  useEffect(() => {
+    if (!detailOpen || detailEvent === null) return;
+    let parsed: Project | null = null;
+    try {
+      if (project.data) parsed = JSON.parse(project.data) as Project;
+    } catch {
+      return;
+    }
+    if (!parsed) return;
+    const next = buildCalendarEventForTask(
+      project,
+      parsed,
+      detailEvent.phaseOrder,
+      detailEvent.taskOrder,
+    );
+    if (!next) return;
+    setDetailEvent((prev) => {
+      if (!prev || prev.id !== next.id) return prev;
+      if (
+        prev.timeStr === next.timeStr &&
+        prev.endTimeStr === next.endTimeStr &&
+        dateKey(prev.date) === dateKey(next.date) &&
+        prev.taskName === next.taskName &&
+        prev.phaseName === next.phaseName &&
+        prev.completed === next.completed &&
+        prev.taskDescription === next.taskDescription
+      ) {
+        return prev;
+      }
+      return next;
+    });
+  }, [
+    project.data,
+    detailOpen,
+    detailEvent?.phaseOrder,
+    detailEvent?.taskOrder,
+    project._id,
+    project.projectName,
+    project.summaryName,
+  ]);
 
   const subtasksByKey = useMemo(() => {
     const map = new Map<
@@ -365,7 +348,6 @@ export function TasksSection({
         projectId: project._id as Id<"projects">,
         data: dataStr,
       });
-      onProjectPatch?.({ data: dataStr });
       closeNewTaskDialog();
     } finally {
       setCreatingTask(false);

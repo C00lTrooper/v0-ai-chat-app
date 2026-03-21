@@ -116,6 +116,26 @@ export function CalendarView() {
     [events, visibleProjectIds],
   );
 
+  useEffect(() => {
+    if (!dialogOpen || !selectedEvent) return;
+    const match = filteredEvents.find((e) => e.id === selectedEvent.id);
+    if (!match) return;
+    setSelectedEvent((prev) => {
+      if (!prev || prev.id !== match.id) return prev;
+      if (
+        prev.timeStr === match.timeStr &&
+        prev.endTimeStr === match.endTimeStr &&
+        dateKey(prev.date) === dateKey(match.date) &&
+        prev.taskName === match.taskName &&
+        prev.phaseName === match.phaseName &&
+        prev.completed === match.completed
+      ) {
+        return prev;
+      }
+      return match;
+    });
+  }, [dialogOpen, filteredEvents, selectedEvent?.id]);
+
   const eventsByDate = useMemo(
     () => groupEventsByDate(filteredEvents),
     [filteredEvents],

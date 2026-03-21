@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { convexClient } from "@/lib/convex";
 import { useAuth } from "@/components/auth-provider";
 import { toast } from "@/hooks/use-toast";
 import {
@@ -54,12 +55,71 @@ import {
   phasesContainingTaskDate,
 } from "@/lib/task-phase-date";
 import { TaskPhaseDateConflictDialog } from "@/components/calendar/task-phase-date-conflict-dialog";
+import {
+  ScheduleTimeSelects,
+  addOneHourFromTime,
+  hhmm24ToNormalized12h,
+  timeStrToHHMM,
+} from "@/components/schedule-time-selects";
 import { Calendar } from "@/components/ui/calendar";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+function convexTimeFromScheduleHHMM(hhmm: string): string | null {
+  return hhmm24ToNormalized12h(hhmm) ?? normalizeTimeString(hhmm.trim());
+}
+
+/** First day/time in [phaseStart, phaseEnd] with no conflicts, using suggested slots like generate-project. */
+async function findFirstFreeSlotInPhaseRange(options: {
+  token: string;
+  phaseStartYmd: string;
+  phaseEndYmd: string;
+  startNorm: string;
+  endNorm: string;
+  excludeTaskKey: string;
+}): Promise<{ date: string; startTime: string; endTime: string } | null> {
+  if (!convexClient) return null;
+  const start = parseYmdLocal(options.phaseStartYmd);
+  const end = parseYmdLocal(options.phaseEndYmd);
+  if (!start || !end) return null;
+  const cur = new Date(start);
+  const endD = new Date(end);
+  while (cur.getTime() <= endD.getTime()) {
+    const ymd = dateKey(cur);
+    let startT = options.startNorm;
+    let endT = options.endNorm;
+    let attempts = 0;
+    while (attempts < 5) {
+      const result = await convexClient.query(api.conflicts.checkTimeConflicts, {
+        token: options.token,
+        date: ymd,
+        startTime: startT,
+        endTime: endT,
+        excludeTaskKey: options.excludeTaskKey,
+      });
+      if (!result.hasConflicts) {
+        return { date: ymd, startTime: startT, endTime: endT };
+      }
+      if (!result.suggestedSlots?.length) break;
+      const sl = result.suggestedSlots[0];
+      startT = sl.startTime;
+      endT = sl.endTime;
+      attempts += 1;
+    }
+    cur.setDate(cur.getDate() + 1);
+  }
+  return null;
+}
 
 interface TaskDetailDialogProps {
   event: CalendarEvent | null;
@@ -79,8 +139,15 @@ export function TaskDetailDialog({
   const [isGenerating, setIsGenerating] = useState(false);
   const [newSubtaskTitle, setNewSubtaskTitle] = useState("");
   const [isAddingSubtask, setIsAddingSubtask] = useState(false);
-  const [taskStartTime, setTaskStartTime] = useState(event?.timeStr ?? "");
-  const [taskEndTime, setTaskEndTime] = useState(event?.endTimeStr ?? "");
+  const [taskStartHHMM, setTaskStartHHMM] = useState(() =>
+    timeStrToHHMM(event?.timeStr ?? "9:00 AM"),
+  );
+  const [taskEndHHMM, setTaskEndHHMM] = useState(() => {
+    const start = timeStrToHHMM(event?.timeStr ?? "9:00 AM");
+    return event?.endTimeStr
+      ? timeStrToHHMM(event.endTimeStr)
+      : addOneHourFromTime(start);
+  });
   const [isUpdatingTime, setIsUpdatingTime] = useState(false);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [taskDate, setTaskDate] = useState(
@@ -95,6 +162,17 @@ export function TaskDetailDialog({
     null,
   );
   const [phaseConflictBusy, setPhaseConflictBusy] = useState(false);
+  const [phaseDateMismatchOpen, setPhaseDateMismatchOpen] = useState(false);
+  const [phaseMismatchBusy, setPhaseMismatchBusy] = useState(false);
+  const [phaseMismatchCtx, setPhaseMismatchCtx] = useState<{
+    phaseOrder: number;
+    taskOrder: number;
+    targetPhaseOrder: number;
+    phaseStartYmd: string;
+    phaseEndYmd: string;
+    phaseName: string;
+  } | null>(null);
+  const [isUpdatingPhase, setIsUpdatingPhase] = useState(false);
 
   const projectDoc = useQuery(
     api.projects.getById,
@@ -110,7 +188,9 @@ export function TaskDetailDialog({
   const updateTaskTime = useMutation(api.aiTools.updateTaskTime);
   const updateTaskStatus = useMutation(api.aiTools.updateTaskStatus);
   const updateTaskDueDate = useMutation(api.aiTools.updateTaskDueDate);
-  const relocateProjectWbsTask = useMutation(api.aiTools.relocateProjectWbsTask);
+  const relocateProjectWbsTask = useMutation(
+    api.aiTools.relocateProjectWbsTask,
+  );
   const deleteProjectWbsTask = useMutation(api.aiTools.deleteProjectWbsTask);
 
   const subtasks = useQuery(
@@ -156,8 +236,13 @@ export function TaskDetailDialog({
   }, [open, event, sessionToken, ensureTask]);
 
   useEffect(() => {
-    setTaskStartTime(event?.timeStr ?? "");
-    setTaskEndTime(event?.endTimeStr ?? "");
+    const start = timeStrToHHMM(event?.timeStr ?? "9:00 AM");
+    setTaskStartHHMM(start);
+    setTaskEndHHMM(
+      event?.endTimeStr
+        ? timeStrToHHMM(event.endTimeStr)
+        : addOneHourFromTime(start),
+    );
     if (event) {
       setTaskDate(dateKey(event.date));
     }
@@ -174,6 +259,19 @@ export function TaskDetailDialog({
     () => (event ? PROJECT_COLORS[event.colorIndex] : PROJECT_COLORS[0]),
     [event],
   );
+
+  const projectPhaseOptions = useMemo(() => {
+    if (!projectDoc?.data) return [] as { order: number; name: string }[];
+    try {
+      const p = JSON.parse(projectDoc.data) as Project;
+      return (p.project_wbs ?? [])
+        .slice()
+        .sort((a, b) => a.order - b.order)
+        .map((ph) => ({ order: ph.order, name: ph.name }));
+    } catch {
+      return [];
+    }
+  }, [projectDoc?.data]);
 
   if (!event) return null;
 
@@ -245,40 +343,28 @@ export function TaskDetailDialog({
 
   const handleUpdateTime = async () => {
     if (!sessionToken || !event || isUpdatingTime) return;
-    const startTrimmed = taskStartTime.trim();
-    if (!startTrimmed) {
-      toast({
-        variant: "destructive",
-        title: "Enter a start time (e.g. 9:00 AM).",
-      });
-      return;
-    }
-    const normalizedStart = normalizeTimeString(startTrimmed);
+    const normalizedStart = convexTimeFromScheduleHHMM(taskStartHHMM);
     if (!normalizedStart) {
       toast({
         variant: "destructive",
-        title: "Start time format is invalid. Use e.g. 9:00 AM or 9am.",
+        title: "Start time is invalid.",
       });
       return;
     }
-    const endTrimmed = taskEndTime.trim();
-    let normalizedEnd: string | undefined;
-    if (endTrimmed) {
-      normalizedEnd = normalizeTimeString(endTrimmed) ?? undefined;
-      if (!normalizedEnd) {
-        toast({
-          variant: "destructive",
-          title: "End time format is invalid. Use e.g. 10:00 AM or 10am.",
-        });
-        return;
-      }
-      if (parseTimeToHour(normalizedEnd) <= parseTimeToHour(normalizedStart)) {
-        toast({
-          variant: "destructive",
-          title: "End time must be after start time.",
-        });
-        return;
-      }
+    const normalizedEnd = convexTimeFromScheduleHHMM(taskEndHHMM);
+    if (!normalizedEnd) {
+      toast({
+        variant: "destructive",
+        title: "End time is invalid.",
+      });
+      return;
+    }
+    if (parseTimeToHour(normalizedEnd) <= parseTimeToHour(normalizedStart)) {
+      toast({
+        variant: "destructive",
+        title: "End time must be after start time.",
+      });
+      return;
     }
     setIsUpdatingTime(true);
     try {
@@ -290,8 +376,8 @@ export function TaskDetailDialog({
         newStartTime: normalizedStart,
         newEndTime: normalizedEnd,
       });
-      setTaskStartTime(normalizedStart);
-      setTaskEndTime(normalizedEnd ?? "");
+      setTaskStartHHMM(timeStrToHHMM(normalizedStart));
+      setTaskEndHHMM(timeStrToHHMM(normalizedEnd));
       toast({ title: "Task time updated." });
     } catch {
       toast({
@@ -369,6 +455,176 @@ export function TaskDetailDialog({
     setPhaseConflictOpen(true);
   };
 
+  const handlePhaseChange = async (value: string) => {
+    if (!sessionToken || !event || !projectDoc?.isOwner) return;
+    const newPhaseOrder = Number.parseInt(value, 10);
+    if (
+      !Number.isFinite(newPhaseOrder) ||
+      newPhaseOrder === event.phaseOrder
+    ) {
+      return;
+    }
+
+    const startNorm = convexTimeFromScheduleHHMM(taskStartHHMM);
+    const endNorm = convexTimeFromScheduleHHMM(taskEndHHMM);
+    if (!startNorm || !endNorm) {
+      toast({
+        variant: "destructive",
+        title: "Set valid start and end times before changing phase.",
+      });
+      return;
+    }
+    if (parseTimeToHour(endNorm) <= parseTimeToHour(startNorm)) {
+      toast({
+        variant: "destructive",
+        title: "End time must be after start time.",
+      });
+      return;
+    }
+
+    let parsed: Project | null = null;
+    try {
+      if (projectDoc.data) parsed = JSON.parse(projectDoc.data) as Project;
+    } catch {
+      parsed = null;
+    }
+
+    const ymd = taskDate.trim();
+    let targetPhaseForBounds: Project["project_wbs"][number] | undefined;
+    if (newPhaseOrder >= 1) {
+      targetPhaseForBounds = parsed?.project_wbs?.find(
+        (p) => p.order === newPhaseOrder,
+      );
+      if (!targetPhaseForBounds) {
+        toast({
+          variant: "destructive",
+          title: "Phase not found.",
+        });
+        return;
+      }
+    }
+
+    setIsUpdatingPhase(true);
+    try {
+      const result = await relocateProjectWbsTask({
+        token: sessionToken,
+        projectId: event.projectId as Id<"projects">,
+        fromPhaseOrder: event.phaseOrder,
+        taskOrder: event.taskOrder,
+        newDate: ymd,
+        newStartTime: startNorm,
+        newEndTime: endNorm,
+        target:
+          newPhaseOrder === UNASSIGNED_PHASE_ORDER
+            ? { kind: "unassigned" }
+            : { kind: "phase", phaseOrder: newPhaseOrder },
+      });
+
+      toast({ title: "Task phase updated." });
+
+      if (
+        newPhaseOrder >= 1 &&
+        targetPhaseForBounds &&
+        !isTaskDateWithinPhase(ymd, targetPhaseForBounds)
+      ) {
+        const tp = targetPhaseForBounds;
+        setPhaseMismatchCtx({
+          phaseOrder: result.phaseOrder,
+          taskOrder: result.taskOrder,
+          targetPhaseOrder: newPhaseOrder,
+          phaseStartYmd: tp.start_date.trim(),
+          phaseEndYmd: tp.end_date.trim(),
+          phaseName: tp.name,
+        });
+        setPhaseDateMismatchOpen(true);
+      } else {
+        setPhaseMismatchCtx(null);
+      }
+    } catch {
+      toast({
+        variant: "destructive",
+        title: "Failed to change phase.",
+      });
+    } finally {
+      setIsUpdatingPhase(false);
+    }
+  };
+
+  const handlePhaseMismatchKeepDate = () => {
+    setPhaseDateMismatchOpen(false);
+    setPhaseMismatchCtx(null);
+  };
+
+  const handlePhaseMismatchMoveIntoPhase = async () => {
+    if (!sessionToken || !event || !phaseMismatchCtx) return;
+    const startNorm = convexTimeFromScheduleHHMM(taskStartHHMM);
+    const endNorm = convexTimeFromScheduleHHMM(taskEndHHMM);
+    if (!startNorm || !endNorm) {
+      toast({
+        variant: "destructive",
+        title: "Set valid start and end times before rescheduling.",
+      });
+      return;
+    }
+    if (parseTimeToHour(endNorm) <= parseTimeToHour(startNorm)) {
+      toast({
+        variant: "destructive",
+        title: "End time must be after start time.",
+      });
+      return;
+    }
+
+    setPhaseMismatchBusy(true);
+    try {
+      const excludeKey = `${event.projectId}:${phaseMismatchCtx.phaseOrder}:${phaseMismatchCtx.taskOrder}`;
+      const slot = await findFirstFreeSlotInPhaseRange({
+        token: sessionToken,
+        phaseStartYmd: phaseMismatchCtx.phaseStartYmd,
+        phaseEndYmd: phaseMismatchCtx.phaseEndYmd,
+        startNorm,
+        endNorm,
+        excludeTaskKey: excludeKey,
+      });
+
+      if (!slot) {
+        toast({
+          variant: "destructive",
+          title: "No free slot found in this phase range.",
+          description: "Try adjusting the phase dates in Overview.",
+        });
+        return;
+      }
+
+      await relocateProjectWbsTask({
+        token: sessionToken,
+        projectId: event.projectId as Id<"projects">,
+        fromPhaseOrder: phaseMismatchCtx.phaseOrder,
+        taskOrder: phaseMismatchCtx.taskOrder,
+        newDate: slot.date,
+        newStartTime: slot.startTime,
+        newEndTime: slot.endTime,
+        target: {
+          kind: "phase",
+          phaseOrder: phaseMismatchCtx.targetPhaseOrder,
+        },
+      });
+
+      setTaskDate(slot.date);
+      setTaskStartHHMM(timeStrToHHMM(slot.startTime));
+      setTaskEndHHMM(timeStrToHHMM(slot.endTime));
+      toast({ title: "Task moved into the phase schedule." });
+      setPhaseDateMismatchOpen(false);
+      setPhaseMismatchCtx(null);
+    } catch {
+      toast({
+        variant: "destructive",
+        title: "Could not reschedule within the phase.",
+      });
+    } finally {
+      setPhaseMismatchBusy(false);
+    }
+  };
+
   const conflictMatchingPhases =
     pendingConflictYmd && projectDoc?.data
       ? (() => {
@@ -391,25 +647,35 @@ export function TaskDetailDialog({
   };
 
   const runRelocate = async (
-    target:
-      | { kind: "phase"; phaseOrder: number }
-      | { kind: "unassigned" },
+    target: { kind: "phase"; phaseOrder: number } | { kind: "unassigned" },
   ) => {
     if (!sessionToken || !event || !pendingConflictYmd) return;
     setPhaseConflictBusy(true);
     try {
-      const startNorm = normalizeTimeString(taskStartTime.trim());
-      const endNorm = taskEndTime.trim()
-        ? normalizeTimeString(taskEndTime.trim()) ?? undefined
-        : undefined;
+      const startNorm = convexTimeFromScheduleHHMM(taskStartHHMM);
+      const endNorm = convexTimeFromScheduleHHMM(taskEndHHMM);
+      if (!startNorm || !endNorm) {
+        toast({
+          variant: "destructive",
+          title: "Set valid start and end times before resolving.",
+        });
+        return;
+      }
+      if (parseTimeToHour(endNorm) <= parseTimeToHour(startNorm)) {
+        toast({
+          variant: "destructive",
+          title: "End time must be after start time.",
+        });
+        return;
+      }
       await relocateProjectWbsTask({
         token: sessionToken,
         projectId: event.projectId as Id<"projects">,
         fromPhaseOrder: event.phaseOrder,
         taskOrder: event.taskOrder,
         newDate: pendingConflictYmd,
-        ...(startNorm ? { newStartTime: startNorm } : {}),
-        ...(endNorm !== undefined ? { newEndTime: endNorm } : {}),
+        newStartTime: startNorm,
+        newEndTime: endNorm,
         target:
           target.kind === "phase"
             ? { kind: "phase" as const, phaseOrder: target.phaseOrder }
@@ -428,20 +694,6 @@ export function TaskDetailDialog({
     } finally {
       setPhaseConflictBusy(false);
     }
-  };
-
-  const handleStartTimeBlur = () => {
-    const t = taskStartTime.trim();
-    if (!t) return;
-    const normalized = normalizeTimeString(t);
-    if (normalized) setTaskStartTime(normalized);
-  };
-
-  const handleEndTimeBlur = () => {
-    const t = taskEndTime.trim();
-    if (!t) return;
-    const normalized = normalizeTimeString(t);
-    if (normalized) setTaskEndTime(normalized);
   };
 
   const handleGenerateSubtasks = async () => {
@@ -540,10 +792,24 @@ export function TaskDetailDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader className="pr-12 sm:pr-14">
-            <div className="space-y-3 text-left">
-              <DialogTitle className="text-base leading-snug">
+        <DialogContent
+          showCloseButton
+          className={cn(
+            "flex w-[min(100vw-1rem,100%)] max-w-[calc(100vw-1rem)] flex-col gap-0 overflow-hidden p-0",
+            "max-h-[min(92dvh,calc(100dvh-1rem))]",
+            "sm:max-h-[min(90dvh,calc(100dvh-2rem))] sm:max-w-2xl",
+            "lg:max-w-5xl",
+          )}
+          onInteractOutside={(e) => {
+            if (phaseConflictOpen || phaseDateMismatchOpen) e.preventDefault();
+          }}
+          onPointerDownOutside={(e) => {
+            if (phaseConflictOpen || phaseDateMismatchOpen) e.preventDefault();
+          }}
+        >
+          <DialogHeader className="shrink-0 space-y-3 border-b border-border/60 px-5 pb-4 pt-5 text-left sm:px-6 sm:pb-5 sm:pt-6 sm:pr-14">
+            <div className="space-y-3 pr-10 sm:pr-0">
+              <DialogTitle className="text-base leading-snug sm:text-lg">
                 {event.taskName}
               </DialogTitle>
               <div className="flex flex-wrap items-center gap-2">
@@ -581,217 +847,265 @@ export function TaskDetailDialog({
               </div>
             </div>
           </DialogHeader>
-          <div className="space-y-3 pt-1">
-            {event.taskDescription && (
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                {event.taskDescription}
-              </p>
-            )}
-            <div className="flex items-center gap-3 text-sm">
-              <CalendarIcon className="size-4 text-muted-foreground" />
-              <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-8 w-44 justify-start text-left text-xs font-normal"
-                    disabled={!sessionToken || isUpdatingDate}
-                    aria-label="Task date"
-                  >
-                    {taskDate || "Select date"}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    mode="single"
-                    selected={
-                      taskDate ? parseYmdLocal(taskDate) : undefined
-                    }
-                    onSelect={(date) => {
-                      if (!date) return;
-                      const ymd = dateKey(date);
-                      setDatePickerOpen(false);
-                      void considerDateChange(ymd);
-                    }}
-                    initialFocus
-                  />
-                </PopoverContent>
-              </Popover>
-            </div>
-            <div className="flex items-center gap-3 text-sm">
-              <Clock className="size-4 shrink-0 text-muted-foreground" />
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-muted-foreground">Start</span>
-                  <Input
-                    value={taskStartTime}
-                    onChange={(e) => setTaskStartTime(e.target.value)}
-                    onBlur={handleStartTimeBlur}
-                    placeholder="9:00 AM"
-                    className={cn(
-                      "h-8 w-24 text-xs",
-                      taskStartTime.trim() &&
-                        !normalizeTimeString(taskStartTime.trim()) &&
-                        "border-destructive focus-visible:ring-destructive",
-                    )}
-                    aria-invalid={
-                      !!taskStartTime.trim() &&
-                      !normalizeTimeString(taskStartTime.trim())
-                    }
-                  />
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-muted-foreground">End</span>
-                  <Input
-                    value={taskEndTime}
-                    onChange={(e) => setTaskEndTime(e.target.value)}
-                    onBlur={handleEndTimeBlur}
-                    placeholder="10:00 AM (optional)"
-                    className={cn(
-                      "h-8 w-24 text-xs",
-                      taskEndTime.trim() &&
-                        !normalizeTimeString(taskEndTime.trim()) &&
-                        "border-destructive focus-visible:ring-destructive",
-                    )}
-                    aria-invalid={
-                      !!taskEndTime.trim() &&
-                      !normalizeTimeString(taskEndTime.trim())
-                    }
-                  />
-                </div>
-                <Button
-                  type="button"
-                  size="xs"
-                  className="h-8 px-2 text-[11px]"
-                  onClick={handleUpdateTime}
-                  disabled={
-                    isUpdatingTime || !taskStartTime.trim() || !sessionToken
-                  }
-                >
-                  Save
-                </Button>
-              </div>
-            </div>
-            <div className="flex items-center gap-3 text-sm">
-              <FolderOpen className="size-4 text-muted-foreground" />
-              <div className="flex items-center gap-2">
-                <span
-                  className="size-2.5 rounded-full"
-                  style={{ backgroundColor: color.hex }}
-                />
-                <span>{event.projectName}</span>
-              </div>
-            </div>
-            <div className="flex items-center gap-3 text-sm">
-              <Layers className="size-4 text-muted-foreground" />
-              <span>
-                {event.phaseOrder === UNASSIGNED_PHASE_ORDER
-                  ? "Unassigned"
-                  : event.phaseName}
-              </span>
-            </div>
 
-            {sessionToken && taskId && (
-              <div className="mt-2 space-y-2 border-t pt-3">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-medium text-muted-foreground">
-                    Subtasks
-                  </span>
-                  {subtasks !== undefined && subtasks.length === 0 && (
-                    <Button
-                      variant="outline"
-                      size="xs"
-                      className="h-7 px-2 text-[11px]"
-                      onClick={handleGenerateSubtasks}
-                      disabled={isGenerating}
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            <div
+              className={cn(
+                "flex flex-col gap-5 px-5 py-4 sm:px-6 sm:py-5",
+                sessionToken &&
+                  taskId &&
+                  "lg:flex-row lg:items-stretch lg:gap-0 lg:py-0",
+              )}
+            >
+              <div
+                className={cn(
+                  "min-w-0 flex-1 space-y-3",
+                  sessionToken && taskId && "lg:px-6 lg:py-5",
+                )}
+              >
+                {event.taskDescription && (
+                  <p className="text-xs text-muted-foreground leading-relaxed sm:text-sm">
+                    {event.taskDescription}
+                  </p>
+                )}
+                <div className="flex items-center gap-3 text-sm">
+                  <FolderOpen className="size-4 shrink-0 text-muted-foreground" />
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span
+                      className="size-2.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: color.hex }}
+                    />
+                    <span className="break-words">{event.projectName}</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 text-sm">
+                  <Layers className="size-4 shrink-0 text-muted-foreground" />
+                  {projectDoc?.isOwner && sessionToken ? (
+                    <Select
+                      value={String(event.phaseOrder)}
+                      onValueChange={(v) => void handlePhaseChange(v)}
+                      disabled={
+                        isUpdatingPhase ||
+                        isUpdatingTime ||
+                        isUpdatingDate ||
+                        isDeletingTask ||
+                        !projectDoc.data
+                      }
                     >
-                      {isGenerating ? (
-                        <Spinner className="mr-1 size-3" />
-                      ) : (
-                        <Sparkles className="mr-1 size-3" />
-                      )}
-                      Break into subtasks
-                    </Button>
+                      <SelectTrigger
+                        className="h-9 min-h-9 min-w-0 max-w-full flex-1 text-left text-sm font-normal text-foreground sm:max-w-xs"
+                        aria-label="Task phase"
+                      >
+                        <SelectValue placeholder="Phase" />
+                      </SelectTrigger>
+                      <SelectContent position="popper" className="z-[100] max-h-72">
+                        <SelectItem
+                          value={String(UNASSIGNED_PHASE_ORDER)}
+                          className="text-xs"
+                        >
+                          Unassigned
+                        </SelectItem>
+                        {projectPhaseOptions.map((ph) => (
+                          <SelectItem
+                            key={ph.order}
+                            value={String(ph.order)}
+                            className="text-xs"
+                          >
+                            {ph.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <span className="min-w-0 break-words">
+                      {event.phaseOrder === UNASSIGNED_PHASE_ORDER
+                        ? "Unassigned"
+                        : event.phaseName}
+                    </span>
                   )}
                 </div>
-                {subtasks === undefined ? (
-                  <p className="text-xs text-muted-foreground">
-                    Loading subtasks…
-                  </p>
-                ) : subtasks.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">
-                    No subtasks yet.
-                  </p>
-                ) : (
-                  <div className="space-y-1">
-                    {subtasks.map((subtask) => (
-                      <div
-                        key={subtask._id}
-                        className="flex items-center gap-2 rounded-md px-2 py-1 text-sm transition-colors hover:bg-muted/70"
-                      >
-                        <Checkbox
-                          checked={subtask.completed}
-                          onCheckedChange={(checked) =>
-                            handleToggleSubtask(
-                              subtask._id as Id<"subtasks">,
-                              Boolean(checked),
-                            )
-                          }
-                        />
-                        <span
-                          className={cn(
-                            "flex-1 text-xs",
-                            subtask.completed &&
-                              "line-through text-muted-foreground",
-                          )}
-                        >
-                          {subtask.title}
-                        </span>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                          onClick={() =>
-                            handleDeleteSubtask(subtask._id as Id<"subtasks">)
-                          }
-                        >
-                          <Trash2 className="size-3" />
-                          <span className="sr-only">Delete subtask</span>
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <div className="mt-2 flex items-center gap-2">
-                  <Input
-                    value={newSubtaskTitle}
-                    onChange={(e) => setNewSubtaskTitle(e.target.value)}
-                    placeholder="Add subtask"
-                    className="h-8 text-xs"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        void handleAddSubtask();
-                      }
-                    }}
-                  />
-                  <Button
-                    type="button"
-                    size="xs"
-                    className="h-8 px-2 text-[11px]"
-                    onClick={handleAddSubtask}
-                    disabled={
-                      !newSubtaskTitle.trim() ||
-                      isAddingSubtask ||
-                      !sessionToken
-                    }
+                <div className="flex items-center gap-3 text-sm">
+                  <CalendarIcon className="size-4 shrink-0 text-muted-foreground" />
+                  <Popover
+                    open={datePickerOpen}
+                    onOpenChange={setDatePickerOpen}
                   >
-                    Add
-                  </Button>
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="default"
+                        className={cn(
+                          "h-9 min-h-9 min-w-0 max-w-full flex-1 justify-start px-3 py-2 border-input bg-transparent text-left text-sm font-normal text-foreground shadow-xs",
+                          "sm:max-w-xs",
+                          "whitespace-normal break-words hover:bg-accent/80 hover:text-foreground",
+                          "dark:bg-input/30 dark:hover:bg-input/50",
+                        )}
+                        disabled={!sessionToken || isUpdatingDate}
+                        aria-label="Task date"
+                      >
+                        {taskDate || "Select date"}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={
+                          taskDate ? parseYmdLocal(taskDate) : undefined
+                        }
+                        onSelect={(date) => {
+                          if (!date) return;
+                          const ymd = dateKey(date);
+                          setDatePickerOpen(false);
+                          void considerDateChange(ymd);
+                        }}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+                <div className="flex items-start gap-3 text-sm">
+                  <Clock className="mt-1 size-4 shrink-0 text-muted-foreground" />
+                  <div className="min-w-0 flex-1 space-y-3 rounded-xl border border-border bg-muted/20 p-3 sm:p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Schedule
+                    </p>
+                    <ScheduleTimeSelects
+                      label="Start time"
+                      value={taskStartHHMM}
+                      onChange={setTaskStartHHMM}
+                    />
+                    <div className="space-y-2 border-t border-border/60 pt-3 sm:pt-4">
+                      <ScheduleTimeSelects
+                        label="End time"
+                        value={taskEndHHMM}
+                        onChange={setTaskEndHHMM}
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className={cn(
+                        "h-9 w-full text-xs sm:w-auto",
+                        projectPrimaryButtonClassName,
+                      )}
+                      onClick={handleUpdateTime}
+                      disabled={isUpdatingTime || !sessionToken}
+                    >
+                      {isUpdatingTime ? "Saving…" : "Save time"}
+                    </Button>
+                  </div>
                 </div>
               </div>
-            )}
+
+              {sessionToken && taskId && (
+                <div
+                  className={cn(
+                    "flex min-h-0 w-full min-w-0 flex-col space-y-2 border-t border-border pt-4",
+                    "lg:max-w-md lg:shrink-0 lg:border-t-0 lg:border-l lg:px-6 lg:py-5",
+                    "lg:bg-muted/15",
+                  )}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs font-medium text-muted-foreground">
+                      Subtasks
+                    </span>
+                    {subtasks !== undefined && subtasks.length === 0 && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2 text-[11px]"
+                        onClick={handleGenerateSubtasks}
+                        disabled={isGenerating}
+                      >
+                        {isGenerating ? (
+                          <Spinner className="mr-1 size-3" />
+                        ) : (
+                          <Sparkles className="mr-1 size-3" />
+                        )}
+                        Break into subtasks
+                      </Button>
+                    )}
+                  </div>
+                  {subtasks === undefined ? (
+                    <p className="text-xs text-muted-foreground">
+                      Loading subtasks…
+                    </p>
+                  ) : subtasks.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      No subtasks yet.
+                    </p>
+                  ) : (
+                    <div className="space-y-1">
+                      {subtasks.map((subtask) => (
+                        <div
+                          key={subtask._id}
+                          className="flex items-center gap-2 rounded-md px-2 py-1 text-sm transition-colors hover:bg-muted/70"
+                        >
+                          <Checkbox
+                            checked={subtask.completed}
+                            onCheckedChange={(checked) =>
+                              handleToggleSubtask(
+                                subtask._id as Id<"subtasks">,
+                                Boolean(checked),
+                              )
+                            }
+                          />
+                          <span
+                            className={cn(
+                              "min-w-0 flex-1 text-xs",
+                              subtask.completed &&
+                                "line-through text-muted-foreground",
+                            )}
+                          >
+                            {subtask.title}
+                          </span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            className="h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive"
+                            onClick={() =>
+                              handleDeleteSubtask(subtask._id as Id<"subtasks">)
+                            }
+                          >
+                            <Trash2 className="size-3" />
+                            <span className="sr-only">Delete subtask</span>
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="mt-1 flex min-w-0 items-center gap-2">
+                    <Input
+                      value={newSubtaskTitle}
+                      onChange={(e) => setNewSubtaskTitle(e.target.value)}
+                      placeholder="Add subtask"
+                      className="h-8 min-w-0 flex-1 text-xs"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void handleAddSubtask();
+                        }
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-8 shrink-0 px-2 text-[11px]"
+                      onClick={handleAddSubtask}
+                      disabled={
+                        !newSubtaskTitle.trim() ||
+                        isAddingSubtask ||
+                        !sessionToken
+                      }
+                    >
+                      Add
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </DialogContent>
       </Dialog>
@@ -801,12 +1115,15 @@ export function TaskDetailDialog({
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this task?</AlertDialogTitle>
             <AlertDialogDescription>
-              This removes “{event.taskName}” from the project schedule. Subtasks
-              saved for this task will also be removed. This cannot be undone.
+              This removes “{event.taskName}” from the project schedule.
+              Subtasks saved for this task will also be removed. This cannot be
+              undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeletingTask}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={isDeletingTask}>
+              Cancel
+            </AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-white hover:bg-destructive/90"
               disabled={isDeletingTask}
@@ -815,15 +1132,63 @@ export function TaskDetailDialog({
                 void handleDeleteTask();
               }}
             >
-              {isDeletingTask ? (
-                <Spinner className="size-4" />
-              ) : (
-                "Delete task"
-              )}
+              {isDeletingTask ? <Spinner className="size-4" /> : "Delete task"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog
+        open={phaseDateMismatchOpen}
+        onOpenChange={(o) => {
+          if (!o && !phaseMismatchBusy) handlePhaseMismatchKeepDate();
+        }}
+      >
+        <DialogContent className="max-w-md" showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>Date outside phase</DialogTitle>
+            <DialogDescription>
+              This task&apos;s date is outside the selected phase (
+              {phaseMismatchCtx?.phaseName ?? "phase"}:{" "}
+              {phaseMismatchCtx
+                ? `${phaseMismatchCtx.phaseStartYmd} – ${phaseMismatchCtx.phaseEndYmd}`
+                : ""}
+              ). Keep the original date or move it into the phase?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="mt-4 flex-col gap-2 sm:flex-row sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-full sm:w-auto"
+              disabled={phaseMismatchBusy}
+              onClick={handlePhaseMismatchKeepDate}
+            >
+              Keep original date
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              className={cn(
+                "w-full sm:w-auto",
+                projectPrimaryButtonClassName,
+              )}
+              disabled={phaseMismatchBusy}
+              onClick={() => void handlePhaseMismatchMoveIntoPhase()}
+            >
+              {phaseMismatchBusy ? (
+                <>
+                  <Spinner className="mr-2 size-4" />
+                  Scheduling…
+                </>
+              ) : (
+                "Move into phase"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <TaskPhaseDateConflictDialog
         open={phaseConflictOpen}
@@ -851,7 +1216,9 @@ export function TaskDetailDialog({
           end_date: p.end_date,
         }))}
         onKeepInPhase={handlePhaseConflictKeep}
-        onMoveToPhase={(phaseOrder) => runRelocate({ kind: "phase", phaseOrder })}
+        onMoveToPhase={(phaseOrder) =>
+          runRelocate({ kind: "phase", phaseOrder })
+        }
         onRemoveFromPhase={() => runRelocate({ kind: "unassigned" })}
         busy={phaseConflictBusy}
       />
