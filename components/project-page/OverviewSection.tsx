@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { useMutation } from "convex/react";
 import {
   Users,
@@ -130,6 +130,8 @@ export function OverviewSection({
   const [featureDraftEnd, setFeatureDraftEnd] = useState("");
   const [phaseStartPickerOpen, setPhaseStartPickerOpen] = useState(false);
   const [phaseEndPickerOpen, setPhaseEndPickerOpen] = useState(false);
+  /** Only one Popover root per picker; duplicate mobile+desktop trees broke Radix (shared `open` + two portals). */
+  const [isLgViewport, setIsLgViewport] = useState(false);
   const [deletePhaseIndex, setDeletePhaseIndex] = useState<number | null>(null);
   const [updatingFeatures, setUpdatingFeatures] = useState(false);
 
@@ -158,6 +160,19 @@ export function OverviewSection({
       ),
     );
   }, [project.data]);
+
+  useLayoutEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const apply = () => setIsLgViewport(mq.matches);
+    apply();
+    const onChange = () => {
+      apply();
+      setPhaseStartPickerOpen(false);
+      setPhaseEndPickerOpen(false);
+    };
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
 
   const persistFeatures = async (nextFeatures: Phase[]) => {
     if (!sessionToken || updatingFeatures) return;
@@ -503,145 +518,149 @@ export function OverviewSection({
                           <div className="grid gap-2 text-xs text-muted-foreground">
                             <div className="flex flex-col gap-1">
                               <span>Start date</span>
-                              <Popover
-                                open={phaseStartPickerOpen}
-                                onOpenChange={(open) => {
-                                  setPhaseStartPickerOpen(open);
-                                  if (open) setPhaseEndPickerOpen(false);
-                                }}
-                              >
-                                <PopoverTrigger asChild>
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    className="h-8 w-full justify-start text-left font-normal text-xs"
-                                    disabled={updatingFeatures}
-                                  >
-                                    <CalendarClock className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
-                                    {parsePhaseDate(featureDraftStart)
-                                      ? parsePhaseDate(
-                                          featureDraftStart,
-                                        )!.toLocaleDateString("en-US", {
-                                          month: "short",
-                                          day: "numeric",
-                                          year: "numeric",
-                                        })
-                                      : "Pick start date"}
-                                  </Button>
-                                </PopoverTrigger>
-                                <PopoverContent
-                                  align="start"
-                                  className="w-auto p-3"
+                              {!isLgViewport && (
+                                <Popover
+                                  open={phaseStartPickerOpen}
+                                  onOpenChange={(open) => {
+                                    setPhaseStartPickerOpen(open);
+                                    if (open) setPhaseEndPickerOpen(false);
+                                  }}
                                 >
-                                  <div className="space-y-3">
-                                    <span className="text-xs font-medium text-muted-foreground">
-                                      Pick start date
-                                    </span>
-                                    <Calendar
-                                      mode="single"
-                                      selected={parsePhaseDate(
-                                        featureDraftStart,
-                                      )}
-                                      onSelect={(d) => {
-                                        if (d) {
-                                          setFeatureDraftStart(
-                                            toLocalYYYYMMDD(d),
-                                          );
-                                          setPhaseStartPickerOpen(false);
-                                        }
-                                      }}
-                                      initialFocus
-                                    />
-                                    <div className="flex justify-end pt-1">
-                                      <Button
-                                        type="button"
-                                        variant="ghost"
-                                        size="xs"
-                                        className="h-7 px-2 text-[11px]"
-                                        onClick={() => {
-                                          setFeatureDraftStart(
-                                            toLocalYYYYMMDD(new Date()),
-                                          );
-                                          setPhaseStartPickerOpen(false);
+                                  <PopoverTrigger asChild>
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      className="h-8 w-full justify-start text-left font-normal text-xs"
+                                      disabled={updatingFeatures}
+                                    >
+                                      <CalendarClock className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
+                                      {parsePhaseDate(featureDraftStart)
+                                        ? parsePhaseDate(
+                                            featureDraftStart,
+                                          )!.toLocaleDateString("en-US", {
+                                            month: "short",
+                                            day: "numeric",
+                                            year: "numeric",
+                                          })
+                                        : "Pick start date"}
+                                    </Button>
+                                  </PopoverTrigger>
+                                  <PopoverContent
+                                    align="start"
+                                    className="w-auto p-3"
+                                  >
+                                    <div className="space-y-3">
+                                      <span className="text-xs font-medium text-muted-foreground">
+                                        Pick start date
+                                      </span>
+                                      <Calendar
+                                        mode="single"
+                                        selected={parsePhaseDate(
+                                          featureDraftStart,
+                                        )}
+                                        onSelect={(d) => {
+                                          if (d) {
+                                            setFeatureDraftStart(
+                                              toLocalYYYYMMDD(d),
+                                            );
+                                            setPhaseStartPickerOpen(false);
+                                          }
                                         }}
-                                        disabled={updatingFeatures}
-                                      >
-                                        Today
-                                      </Button>
+                                        initialFocus
+                                      />
+                                      <div className="flex justify-end pt-1">
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="xs"
+                                          className="h-7 px-2 text-[11px]"
+                                          onClick={() => {
+                                            setFeatureDraftStart(
+                                              toLocalYYYYMMDD(new Date()),
+                                            );
+                                            setPhaseStartPickerOpen(false);
+                                          }}
+                                          disabled={updatingFeatures}
+                                        >
+                                          Today
+                                        </Button>
+                                      </div>
                                     </div>
-                                  </div>
-                                </PopoverContent>
-                              </Popover>
+                                  </PopoverContent>
+                                </Popover>
+                              )}
                             </div>
                             <div className="flex flex-col gap-1">
                               <span>End date</span>
-                              <Popover
-                                open={phaseEndPickerOpen}
-                                onOpenChange={(open) => {
-                                  setPhaseEndPickerOpen(open);
-                                  if (open) setPhaseStartPickerOpen(false);
-                                }}
-                              >
-                                <PopoverTrigger asChild>
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    className="h-8 w-full justify-start text-left font-normal text-xs"
-                                    disabled={updatingFeatures}
-                                  >
-                                    <CalendarClock className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
-                                    {parsePhaseDate(featureDraftEnd)
-                                      ? parsePhaseDate(
-                                          featureDraftEnd,
-                                        )!.toLocaleDateString("en-US", {
-                                          month: "short",
-                                          day: "numeric",
-                                          year: "numeric",
-                                        })
-                                      : "Pick end date"}
-                                  </Button>
-                                </PopoverTrigger>
-                                <PopoverContent
-                                  align="start"
-                                  className="w-auto p-3"
+                              {!isLgViewport && (
+                                <Popover
+                                  open={phaseEndPickerOpen}
+                                  onOpenChange={(open) => {
+                                    setPhaseEndPickerOpen(open);
+                                    if (open) setPhaseStartPickerOpen(false);
+                                  }}
                                 >
-                                  <div className="space-y-3">
-                                    <span className="text-xs font-medium text-muted-foreground">
-                                      Pick end date
-                                    </span>
-                                    <Calendar
-                                      mode="single"
-                                      selected={parsePhaseDate(featureDraftEnd)}
-                                      onSelect={(d) => {
-                                        if (d) {
-                                          setFeatureDraftEnd(
-                                            toLocalYYYYMMDD(d),
-                                          );
-                                          setPhaseEndPickerOpen(false);
-                                        }
-                                      }}
-                                      initialFocus
-                                    />
-                                    <div className="flex justify-end pt-1">
-                                      <Button
-                                        type="button"
-                                        variant="ghost"
-                                        size="xs"
-                                        className="h-7 px-2 text-[11px]"
-                                        onClick={() => {
-                                          setFeatureDraftEnd(
-                                            toLocalYYYYMMDD(new Date()),
-                                          );
-                                          setPhaseEndPickerOpen(false);
+                                  <PopoverTrigger asChild>
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      className="h-8 w-full justify-start text-left font-normal text-xs"
+                                      disabled={updatingFeatures}
+                                    >
+                                      <CalendarClock className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
+                                      {parsePhaseDate(featureDraftEnd)
+                                        ? parsePhaseDate(
+                                            featureDraftEnd,
+                                          )!.toLocaleDateString("en-US", {
+                                            month: "short",
+                                            day: "numeric",
+                                            year: "numeric",
+                                          })
+                                        : "Pick end date"}
+                                    </Button>
+                                  </PopoverTrigger>
+                                  <PopoverContent
+                                    align="start"
+                                    className="w-auto p-3"
+                                  >
+                                    <div className="space-y-3">
+                                      <span className="text-xs font-medium text-muted-foreground">
+                                        Pick end date
+                                      </span>
+                                      <Calendar
+                                        mode="single"
+                                        selected={parsePhaseDate(featureDraftEnd)}
+                                        onSelect={(d) => {
+                                          if (d) {
+                                            setFeatureDraftEnd(
+                                              toLocalYYYYMMDD(d),
+                                            );
+                                            setPhaseEndPickerOpen(false);
+                                          }
                                         }}
-                                        disabled={updatingFeatures}
-                                      >
-                                        Today
-                                      </Button>
+                                        initialFocus
+                                      />
+                                      <div className="flex justify-end pt-1">
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="xs"
+                                          className="h-7 px-2 text-[11px]"
+                                          onClick={() => {
+                                            setFeatureDraftEnd(
+                                              toLocalYYYYMMDD(new Date()),
+                                            );
+                                            setPhaseEndPickerOpen(false);
+                                          }}
+                                          disabled={updatingFeatures}
+                                        >
+                                          Today
+                                        </Button>
+                                      </div>
                                     </div>
-                                  </div>
-                                </PopoverContent>
-                              </Popover>
+                                  </PopoverContent>
+                                </Popover>
+                              )}
                             </div>
                           </div>
                           <div className="flex gap-2">
@@ -744,142 +763,146 @@ export function OverviewSection({
                                 <div className="grid grid-cols-1 gap-2 text-xs text-muted-foreground min-[800px]:grid-cols-2">
                                   <div className="flex min-w-0 flex-col gap-1">
                                     <span>Start date</span>
-                                    <Popover
-                                      open={phaseStartPickerOpen}
-                                      onOpenChange={(open) => {
-                                        setPhaseStartPickerOpen(open);
-                                        if (open) setPhaseEndPickerOpen(false);
-                                      }}
-                                    >
-                                      <PopoverTrigger asChild>
-                                        <Button
-                                          type="button"
-                                          variant="outline"
-                                          className="h-8 w-full min-w-0 justify-start text-left font-normal text-xs"
-                                          disabled={updatingFeatures}
-                                        >
-                                          <CalendarClock className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
-                                          {parsePhaseDate(featureDraftStart)
-                                            ? parsePhaseDate(
+                                    {isLgViewport && (
+                                      <Popover
+                                        open={phaseStartPickerOpen}
+                                        onOpenChange={(open) => {
+                                          setPhaseStartPickerOpen(open);
+                                          if (open) setPhaseEndPickerOpen(false);
+                                        }}
+                                      >
+                                        <PopoverTrigger asChild>
+                                          <Button
+                                            type="button"
+                                            variant="outline"
+                                            className="h-8 w-full min-w-0 justify-start text-left font-normal text-xs"
+                                            disabled={updatingFeatures}
+                                          >
+                                            <CalendarClock className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
+                                            {parsePhaseDate(featureDraftStart)
+                                              ? parsePhaseDate(
+                                                  featureDraftStart,
+                                                )!.toLocaleDateString("en-US", {
+                                                  month: "short",
+                                                  day: "numeric",
+                                                  year: "numeric",
+                                                })
+                                              : "Pick start date"}
+                                          </Button>
+                                        </PopoverTrigger>
+                                        <PopoverContent align="start">
+                                          <div className="space-y-3">
+                                            <span className="text-xs font-medium text-muted-foreground">
+                                              Pick start date
+                                            </span>
+                                            <Calendar
+                                              mode="single"
+                                              selected={parsePhaseDate(
                                                 featureDraftStart,
-                                              )!.toLocaleDateString("en-US", {
-                                                month: "short",
-                                                day: "numeric",
-                                                year: "numeric",
-                                              })
-                                            : "Pick start date"}
-                                        </Button>
-                                      </PopoverTrigger>
-                                      <PopoverContent align="start">
-                                        <div className="space-y-3">
-                                          <span className="text-xs font-medium text-muted-foreground">
-                                            Pick start date
-                                          </span>
-                                          <Calendar
-                                            mode="single"
-                                            selected={parsePhaseDate(
-                                              featureDraftStart,
-                                            )}
-                                            onSelect={(d) => {
-                                              if (d) {
-                                                setFeatureDraftStart(
-                                                  toLocalYYYYMMDD(d),
-                                                );
-                                                setPhaseStartPickerOpen(false);
-                                              }
-                                            }}
-                                            initialFocus
-                                          />
-                                          <div className="flex justify-end gap-2 pt-1">
-                                            <Button
-                                              type="button"
-                                              variant="ghost"
-                                              size="xs"
-                                              className="h-7 px-2 text-[11px]"
-                                              onClick={() => {
-                                                setFeatureDraftStart(
-                                                  toLocalYYYYMMDD(new Date()),
-                                                );
-                                                setPhaseStartPickerOpen(false);
+                                              )}
+                                              onSelect={(d) => {
+                                                if (d) {
+                                                  setFeatureDraftStart(
+                                                    toLocalYYYYMMDD(d),
+                                                  );
+                                                  setPhaseStartPickerOpen(false);
+                                                }
                                               }}
-                                              disabled={updatingFeatures}
-                                            >
-                                              Today
-                                            </Button>
+                                              initialFocus
+                                            />
+                                            <div className="flex justify-end gap-2 pt-1">
+                                              <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="xs"
+                                                className="h-7 px-2 text-[11px]"
+                                                onClick={() => {
+                                                  setFeatureDraftStart(
+                                                    toLocalYYYYMMDD(new Date()),
+                                                  );
+                                                  setPhaseStartPickerOpen(false);
+                                                }}
+                                                disabled={updatingFeatures}
+                                              >
+                                                Today
+                                              </Button>
+                                            </div>
                                           </div>
-                                        </div>
-                                      </PopoverContent>
-                                    </Popover>
+                                        </PopoverContent>
+                                      </Popover>
+                                    )}
                                   </div>
                                   <div className="flex min-w-0 flex-col gap-1">
                                     <span>End date</span>
-                                    <Popover
-                                      open={phaseEndPickerOpen}
-                                      onOpenChange={(open) => {
-                                        setPhaseEndPickerOpen(open);
-                                        if (open)
-                                          setPhaseStartPickerOpen(false);
-                                      }}
-                                    >
-                                      <PopoverTrigger asChild>
-                                        <Button
-                                          type="button"
-                                          variant="outline"
-                                          className="h-8 w-full min-w-0 justify-start text-left font-normal text-xs"
-                                          disabled={updatingFeatures}
-                                        >
-                                          <CalendarClock className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
-                                          {parsePhaseDate(featureDraftEnd)
-                                            ? parsePhaseDate(
+                                    {isLgViewport && (
+                                      <Popover
+                                        open={phaseEndPickerOpen}
+                                        onOpenChange={(open) => {
+                                          setPhaseEndPickerOpen(open);
+                                          if (open)
+                                            setPhaseStartPickerOpen(false);
+                                        }}
+                                      >
+                                        <PopoverTrigger asChild>
+                                          <Button
+                                            type="button"
+                                            variant="outline"
+                                            className="h-8 w-full min-w-0 justify-start text-left font-normal text-xs"
+                                            disabled={updatingFeatures}
+                                          >
+                                            <CalendarClock className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
+                                            {parsePhaseDate(featureDraftEnd)
+                                              ? parsePhaseDate(
+                                                  featureDraftEnd,
+                                                )!.toLocaleDateString("en-US", {
+                                                  month: "short",
+                                                  day: "numeric",
+                                                  year: "numeric",
+                                                })
+                                              : "Pick end date"}
+                                          </Button>
+                                        </PopoverTrigger>
+                                        <PopoverContent align="start">
+                                          <div className="space-y-3">
+                                            <span className="text-xs font-medium text-muted-foreground">
+                                              Pick end date
+                                            </span>
+                                            <Calendar
+                                              mode="single"
+                                              selected={parsePhaseDate(
                                                 featureDraftEnd,
-                                              )!.toLocaleDateString("en-US", {
-                                                month: "short",
-                                                day: "numeric",
-                                                year: "numeric",
-                                              })
-                                            : "Pick end date"}
-                                        </Button>
-                                      </PopoverTrigger>
-                                      <PopoverContent align="start">
-                                        <div className="space-y-3">
-                                          <span className="text-xs font-medium text-muted-foreground">
-                                            Pick end date
-                                          </span>
-                                          <Calendar
-                                            mode="single"
-                                            selected={parsePhaseDate(
-                                              featureDraftEnd,
-                                            )}
-                                            onSelect={(d) => {
-                                              if (d) {
-                                                setFeatureDraftEnd(
-                                                  toLocalYYYYMMDD(d),
-                                                );
-                                                setPhaseEndPickerOpen(false);
-                                              }
-                                            }}
-                                            initialFocus
-                                          />
-                                          <div className="flex justify-end gap-2 pt-1">
-                                            <Button
-                                              type="button"
-                                              variant="ghost"
-                                              size="xs"
-                                              className="h-7 px-2 text-[11px]"
-                                              onClick={() => {
-                                                setFeatureDraftEnd(
-                                                  toLocalYYYYMMDD(new Date()),
-                                                );
-                                                setPhaseEndPickerOpen(false);
+                                              )}
+                                              onSelect={(d) => {
+                                                if (d) {
+                                                  setFeatureDraftEnd(
+                                                    toLocalYYYYMMDD(d),
+                                                  );
+                                                  setPhaseEndPickerOpen(false);
+                                                }
                                               }}
-                                              disabled={updatingFeatures}
-                                            >
-                                              Today
-                                            </Button>
+                                              initialFocus
+                                            />
+                                            <div className="flex justify-end gap-2 pt-1">
+                                              <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="xs"
+                                                className="h-7 px-2 text-[11px]"
+                                                onClick={() => {
+                                                  setFeatureDraftEnd(
+                                                    toLocalYYYYMMDD(new Date()),
+                                                  );
+                                                  setPhaseEndPickerOpen(false);
+                                                }}
+                                                disabled={updatingFeatures}
+                                              >
+                                                Today
+                                              </Button>
+                                            </div>
                                           </div>
-                                        </div>
-                                      </PopoverContent>
-                                    </Popover>
+                                        </PopoverContent>
+                                      </Popover>
+                                    )}
                                   </div>
                                 </div>
                                 <div className="flex gap-2">
