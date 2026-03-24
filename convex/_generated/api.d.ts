@@ -15,6 +15,7 @@ import type * as budget from "../budget.js";
 import type * as chats from "../chats.js";
 import type * as conflicts from "../conflicts.js";
 import type * as features from "../features.js";
+import type * as projectGeneration from "../projectGeneration.js";
 import type * as projects from "../projects.js";
 import type * as scheduling from "../scheduling.js";
 import type * as tasks from "../tasks.js";
@@ -34,6 +35,7 @@ declare const fullApi: ApiFromModules<{
   chats: typeof chats;
   conflicts: typeof conflicts;
   features: typeof features;
+  projectGeneration: typeof projectGeneration;
   projects: typeof projects;
   scheduling: typeof scheduling;
   tasks: typeof tasks;

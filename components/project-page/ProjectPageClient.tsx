@@ -42,6 +42,7 @@ import type { Project } from "@/lib/project-schema";
 import { UNASSIGNED_PHASE_ORDER } from "@/lib/task-phase-date";
 import { assignWbsOrdersFromDates } from "@/lib/wbs-order-from-dates";
 import type { ProjectData, Section } from "@/components/project-page/types";
+import { GenerateProjectContentModal } from "@/components/project-page/GenerateProjectContentModal";
 
 type NavItem = {
   id: Section;
@@ -148,6 +149,7 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [generateContentOpen, setGenerateContentOpen] = useState(false);
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 767px)");
@@ -569,6 +571,33 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
                 );
               })}
             </TooltipProvider>
+            {project.isOwner && (
+              <div className="mt-2 border-t border-border pt-2">
+                <TooltipProvider delayDuration={0}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => setGenerateContentOpen(true)}
+                        className={cn(
+                          "flex w-full items-center rounded-lg py-2 text-sm font-medium transition-colors",
+                          sidebarMinimized
+                            ? "justify-center px-0"
+                            : "gap-3 px-3",
+                          "bg-primary/15 text-primary hover:bg-primary/25",
+                        )}
+                      >
+                        <Sparkles className="size-4 shrink-0" />
+                        {!sidebarMinimized && <span>Generate</span>}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">
+                      Generate new phases, features, or tasks with AI
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+            )}
           </nav>
           {!isMobile && (
             <div className="border-t border-border p-2">
@@ -609,6 +638,14 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
           />
         </main>
       </div>
+      {sessionToken && (
+        <GenerateProjectContentModal
+          open={generateContentOpen}
+          onOpenChange={setGenerateContentOpen}
+          project={project}
+          sessionToken={sessionToken}
+        />
+      )}
     </div>
   );
 }
