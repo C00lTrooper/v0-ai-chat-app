@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Calendar as CalendarIcon,
   Clock,
@@ -132,6 +133,7 @@ export function TaskDetailDialog({
   open,
   onOpenChange,
 }: TaskDetailDialogProps) {
+  const router = useRouter();
   const { sessionToken } = useAuth();
   const [taskId, setTaskId] = useState<Id<"tasks"> | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -789,6 +791,12 @@ export function TaskDetailDialog({
     }
   };
 
+  const handleViewInCalendar = () => {
+    if (!event) return;
+    onOpenChange(false);
+    router.push(`/calendar?task=${encodeURIComponent(event.id)}`);
+  };
+
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -831,6 +839,16 @@ export function TaskDetailDialog({
                     Completed
                   </span>
                 )}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-8 w-fit gap-1.5"
+                  onClick={handleViewInCalendar}
+                >
+                  <CalendarIcon className="size-4" aria-hidden />
+                  View in calendar
+                </Button>
                 {projectDoc?.isOwner ? (
                   <Button
                     type="button"

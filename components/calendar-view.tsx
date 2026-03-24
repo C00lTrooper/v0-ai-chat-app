@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { CalendarSidebar } from "@/components/calendar/calendar-sidebar";
 import { CalendarToolbar } from "@/components/calendar/calendar-toolbar";
 import { CalendarMonthGrid } from "@/components/calendar/calendar-month-grid";
@@ -41,6 +42,9 @@ import {
 import type { Id } from "@/convex/_generated/dataModel";
 
 export function CalendarView() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const openedTaskFromUrlRef = useRef<string | null>(null);
   const [viewMode, setViewMode] = useState<CalendarViewMode>("month");
   const [currentDate, setCurrentDate] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState(() => new Date());
@@ -75,6 +79,37 @@ export function CalendarView() {
   const relocateProjectWbsTask = useMutation(api.aiTools.relocateProjectWbsTask);
 
   const { projects, events, loading } = useCalendarData();
+
+  useEffect(() => {
+    if (loading) return;
+    const taskId = searchParams.get("task");
+    if (!taskId) {
+      openedTaskFromUrlRef.current = null;
+      return;
+    }
+    if (openedTaskFromUrlRef.current === taskId) return;
+    const match = events.find((e) => e.id === taskId);
+    if (!match) {
+      openedTaskFromUrlRef.current = taskId;
+      router.replace("/calendar", { scroll: false });
+      return;
+    }
+    openedTaskFromUrlRef.current = taskId;
+    if (match.projectId) {
+      setVisibleProjectIds((prev) => {
+        const next = new Set(prev);
+        next.add(match.projectId);
+        return next;
+      });
+    }
+    const d = new Date(match.date);
+    setCurrentDate(d);
+    setSelectedDate(d);
+    setViewMode("day");
+    setSelectedEvent(match);
+    setDialogOpen(true);
+    router.replace("/calendar", { scroll: false });
+  }, [loading, events, router, searchParams]);
 
   const projectIdForReschedule =
     pendingReschedule?.event.projectId ??
