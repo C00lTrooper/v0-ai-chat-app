@@ -1,7 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronLeft, ChevronRight, ChevronUp, PanelLeftClose } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+  Layers,
+  PanelLeftClose,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -26,6 +32,8 @@ interface CalendarSidebarProps {
   projects: CalendarProject[];
   visibleProjectIds: Set<string>;
   onToggleProject: (id: string) => void;
+  phaseViewProjectId: string | null;
+  onTogglePhaseView: (projectId: string) => void;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
 }
@@ -37,6 +45,8 @@ export function CalendarSidebar({
   projects,
   visibleProjectIds,
   onToggleProject,
+  phaseViewProjectId,
+  onTogglePhaseView,
   collapsed = false,
   onToggleCollapse,
 }: CalendarSidebarProps) {
@@ -196,39 +206,69 @@ export function CalendarSidebar({
               {projects.map((project) => {
                 const color = PROJECT_COLORS[project.colorIndex];
                 const visible = visibleProjectIds.has(project._id);
+                const phaseViewActive = phaseViewProjectId === project._id;
                 return (
-                  <button
+                  <div
                     key={project._id}
-                    onClick={() => onToggleProject(project._id)}
-                    className="flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-sm hover:bg-accent/50"
+                    className="flex w-full items-center gap-0.5 rounded-md py-1 pl-1.5 pr-0.5 hover:bg-accent/50"
                   >
-                    <span
-                      className={cn(
-                        "flex size-4 shrink-0 items-center justify-center rounded-[3px] border transition-colors",
-                      )}
-                      style={{
-                        backgroundColor: visible ? color.hex : "transparent",
-                        borderColor: visible
-                          ? color.hex
-                          : "var(--color-border)",
-                      }}
+                    <button
+                      type="button"
+                      onClick={() => onToggleProject(project._id)}
+                      className="flex min-w-0 flex-1 items-center gap-2 rounded-md py-0 pr-1 text-left text-sm"
                     >
-                      {visible && (
-                        <svg
-                          viewBox="0 0 12 12"
-                          className="size-2.5 text-white"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M2 6l3 3 5-5" />
-                        </svg>
+                      <span
+                        className={cn(
+                          "flex size-4 shrink-0 items-center justify-center rounded-[3px] border transition-colors",
+                        )}
+                        style={{
+                          backgroundColor: visible ? color.hex : "transparent",
+                          borderColor: visible
+                            ? color.hex
+                            : "var(--color-border)",
+                        }}
+                      >
+                        {visible && (
+                          <svg
+                            viewBox="0 0 12 12"
+                            className="size-2.5 text-white"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M2 6l3 3 5-5" />
+                          </svg>
+                        )}
+                      </span>
+                      <span className="truncate">{project.projectName}</span>
+                    </button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className={cn(
+                        "size-7 shrink-0 text-muted-foreground hover:text-foreground",
+                        phaseViewActive &&
+                          "bg-primary/15 text-primary hover:bg-primary/20 hover:text-primary",
                       )}
-                    </span>
-                    <span className="truncate">{project.projectName}</span>
-                  </button>
+                      title={
+                        phaseViewActive
+                          ? "Exit phase view"
+                          : "View phases on calendar"
+                      }
+                      aria-label={
+                        phaseViewActive
+                          ? `Exit phase view for ${project.projectName}`
+                          : `View phases for ${project.projectName} on calendar`
+                      }
+                      aria-pressed={phaseViewActive}
+                      onClick={() => onTogglePhaseView(project._id)}
+                    >
+                      <Layers className="size-3.5" />
+                    </Button>
+                  </div>
                 );
               })}
             </div>

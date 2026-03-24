@@ -4,7 +4,12 @@ import { useMemo } from "react";
 import { useQuery } from "convex/react";
 import { useAuth } from "@/components/auth-provider";
 import { api } from "@/convex/_generated/api";
-import type { CalendarEvent, CalendarProject } from "@/lib/calendar-utils";
+import type {
+  CalendarEvent,
+  CalendarPhaseInfo,
+  CalendarProject,
+} from "@/lib/calendar-utils";
+import { PROJECT_COLORS } from "@/lib/calendar-utils";
 
 interface ProjectWbsTask {
   order: number;
@@ -74,10 +79,11 @@ export function useCalendarData() {
     (sessionToken && rawProjects === undefined) ||
     (sessionToken && contextResult === undefined);
 
-  const { projects, events } = useMemo(() => {
+  const { projects, events, projectPhasesByProjectId } = useMemo(() => {
     const projectsList: RawProject[] = Array.isArray(rawProjects) ? rawProjects : [];
     const projects: CalendarProject[] = [];
     const events: CalendarEvent[] = [];
+    const projectPhasesByProjectId: Record<string, CalendarPhaseInfo[]> = {};
 
     projectsList.forEach((rp, idx) => {
       const colorIndex = idx % 8;
@@ -90,6 +96,20 @@ export function useCalendarData() {
       try {
         const data: ProjectData = JSON.parse(rp.data);
         if (!data.project_wbs) return;
+
+        const wbs = data.project_wbs;
+        const phaseInfos: CalendarPhaseInfo[] = [];
+        for (let pi = 0; pi < wbs.length; pi++) {
+          const ph = wbs[pi];
+          phaseInfos.push({
+            order: ph.order,
+            name: ph.name,
+            start_date: ph.start_date,
+            end_date: ph.end_date,
+            colorIndex: pi % PROJECT_COLORS.length,
+          });
+        }
+        projectPhasesByProjectId[rp._id] = phaseInfos;
 
         for (const phase of data.project_wbs) {
           for (const task of phase.tasks) {
@@ -160,8 +180,8 @@ export function useCalendarData() {
       });
     }
 
-    return { projects, events };
+    return { projects, events, projectPhasesByProjectId };
   }, [rawProjects, rawCalendarEvents]);
 
-  return { projects, events, loading };
+  return { projects, events, projectPhasesByProjectId, loading };
 }

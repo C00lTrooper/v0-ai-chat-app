@@ -9,9 +9,10 @@ import {
 } from "@/components/ui/dialog";
 import {
   type CalendarEvent,
-  PROJECT_COLORS,
+  type CalendarPhaseInfo,
   formatTime12h,
   parseTimeToHour,
+  resolvePhaseViewEventColor,
 } from "@/lib/calendar-utils";
 import { cn } from "@/lib/utils";
 
@@ -21,6 +22,8 @@ interface DayTasksDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onEventClick: (event: CalendarEvent) => void;
+  phaseViewProjectId?: string | null;
+  projectPhasesByProjectId?: Record<string, CalendarPhaseInfo[]>;
 }
 
 export function DayTasksDialog({
@@ -29,6 +32,8 @@ export function DayTasksDialog({
   open,
   onOpenChange,
   onEventClick,
+  phaseViewProjectId = null,
+  projectPhasesByProjectId = {},
 }: DayTasksDialogProps) {
   const sortedEvents = [...events].sort(
     (a, b) => parseTimeToHour(a.timeStr) - parseTimeToHour(b.timeStr),
@@ -66,8 +71,15 @@ export function DayTasksDialog({
           ) : (
             <ul className="space-y-1">
               {sortedEvents.map((evt) => {
-                const color = PROJECT_COLORS[evt.colorIndex];
+                const { hex, isOtherProject } = resolvePhaseViewEventColor(
+                  evt,
+                  phaseViewProjectId,
+                  projectPhasesByProjectId,
+                );
+                const color = { hex };
                 const isCompleted = evt.completed;
+                const rowOpacity =
+                  (isCompleted ? 0.72 : 1) * (isOtherProject ? 0.45 : 1);
                 return (
                   <li key={evt.id}>
                     <button
@@ -75,11 +87,11 @@ export function DayTasksDialog({
                       onClick={() => handleEventClick(evt)}
                       className={cn(
                         "flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors hover:bg-muted/80",
-                        isCompleted && "opacity-75",
                       )}
                       style={{
                         borderLeftWidth: 4,
                         borderLeftColor: color.hex,
+                        opacity: rowOpacity,
                       }}
                     >
                       <span

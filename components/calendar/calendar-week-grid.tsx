@@ -3,6 +3,7 @@
 import { cn } from "@/lib/utils";
 import {
   type CalendarEvent,
+  type CalendarPhaseInfo,
   PROJECT_COLORS,
   getWeekViewDays,
   dateKey,
@@ -12,6 +13,8 @@ import {
   formatHour,
   parseTimeToHour,
   eventDurationHours,
+  resolvePhaseViewEventColor,
+  weekPhaseColumnRange,
 } from "@/lib/calendar-utils";
 import { useRef } from "react";
 import {
@@ -36,6 +39,8 @@ interface CalendarWeekGridProps {
     newStartTime: string,
     durationHours: number,
   ) => void;
+  phaseViewProjectId: string | null;
+  projectPhasesByProjectId: Record<string, CalendarPhaseInfo[]>;
 }
 
 export function CalendarWeekGrid({
@@ -45,8 +50,14 @@ export function CalendarWeekGrid({
   onSelectDate,
   onEventClick,
   onEventDragEnd,
+  phaseViewProjectId,
+  projectPhasesByProjectId,
 }: CalendarWeekGridProps) {
   const days = getWeekViewDays(currentDate);
+  const phaseBands =
+    phaseViewProjectId != null
+      ? (projectPhasesByProjectId[phaseViewProjectId] ?? [])
+      : [];
 
   const gridRef = useRef<HTMLDivElement | null>(null);
   const { dragState, beginDrag } = useEventDragResize({
@@ -116,13 +127,38 @@ export function CalendarWeekGrid({
         </div>
 
         {/* Day columns with events */}
-        <div className="grid flex-1 grid-cols-7" ref={gridRef}>
+        <div className="relative grid flex-1 grid-cols-7" ref={gridRef}>
+          {phaseBands.map((phase) => {
+            const range = weekPhaseColumnRange(
+              days,
+              phase.start_date,
+              phase.end_date,
+            );
+            if (!range) return null;
+            const color = PROJECT_COLORS[phase.colorIndex % PROJECT_COLORS.length];
+            const colFrac = 100 / 7;
+            return (
+              <div
+                key={`pv-${phase.order}-${phase.start_date}-${phase.end_date}`}
+                className="pointer-events-none absolute inset-y-0 z-0 overflow-hidden rounded-sm"
+                style={{
+                  left: `${range.startCol * colFrac}%`,
+                  width: `${(range.endCol - range.startCol + 1) * colFrac}%`,
+                  backgroundColor: `${color.hex}24`,
+                }}
+              >
+                <div className="truncate px-1 pt-0.5 text-[9px] font-medium leading-tight text-foreground/40">
+                  {phase.name}
+                </div>
+              </div>
+            );
+          })}
           {days.map((day, di) => {
             const key = dateKey(day);
             const dayEvents = eventsByDate.get(key) ?? [];
 
             return (
-              <div key={di} className="relative border-l border-border/50">
+              <div key={di} className="relative z-[1] border-l border-border/50">
                 {/* Hour gridlines */}
                 {HOURS.map((hour) => (
                   <div
@@ -134,7 +170,12 @@ export function CalendarWeekGrid({
 
                 {/* Events */}
                 {dayEvents.map((evt) => {
-                  const color = PROJECT_COLORS[evt.colorIndex];
+                  const { hex, isOtherProject } = resolvePhaseViewEventColor(
+                    evt,
+                    phaseViewProjectId,
+                    projectPhasesByProjectId,
+                  );
+                  const color = { hex };
                   const startHour = parseTimeToHour(evt.timeStr);
                   const snappedStartHour = Math.round(startHour * 4) / 4;
                   const durationHours = eventDurationHours(evt);
@@ -246,7 +287,7 @@ export function CalendarWeekGrid({
                   return (
                     <button
                       key={evt.id}
-                      className="absolute inset-x-0.5 z-10 flex flex-col overflow-hidden rounded px-1.5 py-0.5 text-left text-[11px] leading-tight transition-opacity hover:opacity-80"
+                      className="absolute inset-x-0.5 z-[2] flex flex-col overflow-hidden rounded px-1.5 py-0.5 text-left text-[11px] leading-tight transition-opacity hover:opacity-80"
                       style={{
                         top: vis.top,
                         height: vis.height,
@@ -255,7 +296,13 @@ export function CalendarWeekGrid({
                           : `${color.hex}20`,
                         borderLeft: `3px solid ${color.hex}`,
                         color: color.hex,
-                        opacity: isCompleted ? 0.6 : vis.isDragging ? 0.8 : 1,
+                        opacity: isCompleted
+                          ? 0.6
+                          : isOtherProject
+                            ? 0.42
+                            : vis.isDragging
+                              ? 0.8
+                              : 1,
                         cursor: "default",
                       }}
                       onMouseDown={(e) => {

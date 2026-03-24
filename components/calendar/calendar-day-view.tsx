@@ -2,6 +2,7 @@
 
 import {
   type CalendarEvent,
+  type CalendarPhaseInfo,
   PROJECT_COLORS,
   dateKey,
   isToday,
@@ -9,6 +10,7 @@ import {
   formatHour,
   parseTimeToHour,
   eventDurationHours,
+  resolvePhaseViewEventColor,
 } from "@/lib/calendar-utils";
 import { useRef } from "react";
 import {
@@ -30,6 +32,8 @@ interface CalendarDayViewProps {
     newStartTime: string,
     durationHours: number,
   ) => void;
+  phaseViewProjectId: string | null;
+  projectPhasesByProjectId: Record<string, CalendarPhaseInfo[]>;
 }
 
 export function CalendarDayView({
@@ -37,9 +41,18 @@ export function CalendarDayView({
   eventsByDate,
   onEventClick,
   onEventDragEnd,
+  phaseViewProjectId,
+  projectPhasesByProjectId,
 }: CalendarDayViewProps) {
   const key = dateKey(currentDate);
   const dayEvents = eventsByDate.get(key) ?? [];
+  const phaseBands =
+    phaseViewProjectId != null
+      ? (projectPhasesByProjectId[phaseViewProjectId] ?? [])
+      : [];
+  const dayPhaseBands = phaseBands.filter(
+    (p) => p.start_date <= key && p.end_date >= key,
+  );
   const today = isToday(currentDate);
   const gridRef = useRef<HTMLDivElement | null>(null);
 
@@ -90,7 +103,7 @@ export function CalendarDayView({
           {HOURS.map((hour, hi) => (
             <div
               key={hour}
-              className="absolute left-0 right-0 flex border-b border-border/50"
+              className="absolute left-0 right-0 z-[1] flex border-b border-border/50"
               style={{ top: hi * HOUR_HEIGHT, height: HOUR_HEIGHT }}
             >
               <div className="flex w-16 shrink-0 items-start justify-end pr-3">
@@ -98,13 +111,37 @@ export function CalendarDayView({
                   {formatHour(hour)}
                 </span>
               </div>
-              <div className="flex-1 border-l border-border/50" />
+              <div className="relative z-[1] flex-1 border-l border-border/50" />
             </div>
           ))}
 
+          {dayPhaseBands.map((phase, pi) => {
+            const color =
+              PROJECT_COLORS[phase.colorIndex % PROJECT_COLORS.length];
+            return (
+              <div
+                key={`pv-${phase.order}-${pi}`}
+                className="pointer-events-none absolute left-16 right-2 top-0 z-0 rounded-md"
+                style={{
+                  height: HOURS.length * HOUR_HEIGHT,
+                  backgroundColor: `${color.hex}20`,
+                }}
+              >
+                <div className="truncate px-2 pt-1.5 text-[10px] font-medium text-foreground/40">
+                  {phase.name}
+                </div>
+              </div>
+            );
+          })}
+
           {/* Events */}
           {dayEvents.map((evt) => {
-            const color = PROJECT_COLORS[evt.colorIndex];
+            const { hex, isOtherProject } = resolvePhaseViewEventColor(
+              evt,
+              phaseViewProjectId,
+              projectPhasesByProjectId,
+            );
+            const color = { hex };
             const startHour = parseTimeToHour(evt.timeStr);
             const snappedStartHour = Math.round(startHour * 4) / 4;
             const durationHours = eventDurationHours(evt);
@@ -211,14 +248,20 @@ export function CalendarDayView({
             return (
               <button
                 key={evt.id}
-                className="absolute right-2 z-10 flex items-start gap-2 overflow-hidden rounded-md px-3 py-2 text-left transition-opacity hover:opacity-80"
+                className="absolute right-2 z-[2] flex items-start gap-2 overflow-hidden rounded-md px-3 py-2 text-left transition-opacity hover:opacity-80"
                 style={{
                   top: vis.top,
                   left: "4.5rem",
                   height: vis.height,
                   backgroundColor: isCompleted ? `${color.hex}10` : `${color.hex}18`,
                   borderLeft: `4px solid ${color.hex}`,
-                  opacity: isCompleted ? 0.6 : vis.isDragging ? 0.8 : 1,
+                  opacity: isCompleted
+                    ? 0.6
+                    : isOtherProject
+                      ? 0.42
+                      : vis.isDragging
+                        ? 0.8
+                        : 1,
                   cursor: "default",
                 }}
                 onMouseDown={(e) => {

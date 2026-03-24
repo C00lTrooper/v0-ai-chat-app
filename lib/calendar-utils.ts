@@ -23,6 +23,15 @@ export interface CalendarEvent {
   taskOrder: number;
 }
 
+/** Phase row from project WBS with timeline-aligned color (array index % palette). */
+export interface CalendarPhaseInfo {
+  order: number;
+  name: string;
+  start_date: string;
+  end_date: string;
+  colorIndex: number;
+}
+
 export const PROJECT_COLORS = [
   { name: "Blue", hex: "#3b82f6" },
   { name: "Red", hex: "#ef4444" },
@@ -33,6 +42,65 @@ export const PROJECT_COLORS = [
   { name: "Pink", hex: "#ec4899" },
   { name: "Amber", hex: "#f59e0b" },
 ];
+
+const PHASE_VIEW_OTHER_PROJECT_HEX = "#737373";
+/** Tasks on the focused project but not in a numbered phase (unassigned / synthetic). */
+const PHASE_VIEW_NON_PHASE_HEX = "#64748b";
+
+export type PhaseViewColorResolution = {
+  hex: string;
+  /** When true, render with extra opacity reduction for “other project” muting. */
+  isOtherProject: boolean;
+};
+
+/**
+ * Resolve bar / task color when optional calendar “phase view” is active.
+ * Timeline colors match `TimelineSection`: `colorIndex = indexInProjectWbs % palette`.
+ */
+export function resolvePhaseViewEventColor(
+  evt: CalendarEvent,
+  phaseViewProjectId: string | null,
+  projectPhasesByProjectId: Record<string, CalendarPhaseInfo[]>,
+): PhaseViewColorResolution {
+  if (!phaseViewProjectId) {
+    return {
+      hex: PROJECT_COLORS[evt.colorIndex % PROJECT_COLORS.length].hex,
+      isOtherProject: false,
+    };
+  }
+  if (evt.projectId !== phaseViewProjectId) {
+    return { hex: PHASE_VIEW_OTHER_PROJECT_HEX, isOtherProject: true };
+  }
+  if (evt.phaseOrder < 1) {
+    return { hex: PHASE_VIEW_NON_PHASE_HEX, isOtherProject: false };
+  }
+  const phases = projectPhasesByProjectId[evt.projectId];
+  const ph = phases?.find((p) => p.order === evt.phaseOrder);
+  const ci = ph?.colorIndex ?? evt.colorIndex;
+  return {
+    hex: PROJECT_COLORS[ci % PROJECT_COLORS.length].hex,
+    isOtherProject: false,
+  };
+}
+
+/** Inclusive column range [startCol, endCol] for a phase on a 7-day week, or null if no overlap. */
+export function weekPhaseColumnRange(
+  weekDays: Date[],
+  phaseStartYmd: string,
+  phaseEndYmd: string,
+): { startCol: number; endCol: number } | null {
+  let startCol = -1;
+  let endCol = -1;
+  for (let i = 0; i < weekDays.length; i++) {
+    const k = dateKey(weekDays[i]);
+    if (k >= phaseStartYmd && k <= phaseEndYmd) {
+      if (startCol < 0) startCol = i;
+      endCol = i;
+    }
+  }
+  if (startCol < 0) return null;
+  return { startCol, endCol };
+}
 
 export function dateKey(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;

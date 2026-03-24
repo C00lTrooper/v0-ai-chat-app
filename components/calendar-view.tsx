@@ -57,6 +57,9 @@ export function CalendarView() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dayTasksModalDate, setDayTasksModalDate] = useState<Date | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [phaseViewProjectId, setPhaseViewProjectId] = useState<string | null>(
+    null,
+  );
 
   const [pendingReschedule, setPendingReschedule] = useState<{
     event: CalendarEvent;
@@ -78,7 +81,22 @@ export function CalendarView() {
   const updateTaskDueDate = useMutation(api.aiTools.updateTaskDueDate);
   const relocateProjectWbsTask = useMutation(api.aiTools.relocateProjectWbsTask);
 
-  const { projects, events, loading } = useCalendarData();
+  const { projects, events, projectPhasesByProjectId, loading } =
+    useCalendarData();
+
+  useEffect(() => {
+    if (!phaseViewProjectId) return;
+    setVisibleProjectIds((s) => {
+      if (s.has(phaseViewProjectId)) return s;
+      const n = new Set(s);
+      n.add(phaseViewProjectId);
+      return n;
+    });
+  }, [phaseViewProjectId]);
+
+  const togglePhaseView = useCallback((projectId: string) => {
+    setPhaseViewProjectId((prev) => (prev === projectId ? null : projectId));
+  }, []);
 
   useEffect(() => {
     if (loading) return;
@@ -429,6 +447,8 @@ export function CalendarView() {
         projects={projects}
         visibleProjectIds={visibleProjectIds}
         onToggleProject={toggleProject}
+        phaseViewProjectId={phaseViewProjectId}
+        onTogglePhaseView={togglePhaseView}
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
       />
@@ -450,6 +470,8 @@ export function CalendarView() {
             onSelectDate={handleSelectDate}
             onEventClick={handleEventClick}
             onDayMoreClick={handleDayMoreClick}
+            phaseViewProjectId={phaseViewProjectId}
+            projectPhasesByProjectId={projectPhasesByProjectId}
           />
         )}
 
@@ -461,6 +483,8 @@ export function CalendarView() {
             onSelectDate={handleSelectDate}
             onEventClick={handleEventClick}
             onEventDragEnd={handleEventDragEnd}
+            phaseViewProjectId={phaseViewProjectId}
+            projectPhasesByProjectId={projectPhasesByProjectId}
           />
         )}
 
@@ -470,6 +494,8 @@ export function CalendarView() {
             eventsByDate={eventsByDate}
             onEventClick={handleEventClick}
             onEventDragEnd={handleEventDragEnd}
+            phaseViewProjectId={phaseViewProjectId}
+            projectPhasesByProjectId={projectPhasesByProjectId}
           />
         )}
       </div>
@@ -490,6 +516,8 @@ export function CalendarView() {
         open={dayTasksModalDate !== null}
         onOpenChange={(open) => !open && setDayTasksModalDate(null)}
         onEventClick={handleEventClick}
+        phaseViewProjectId={phaseViewProjectId}
+        projectPhasesByProjectId={projectPhasesByProjectId}
       />
 
       <Dialog
