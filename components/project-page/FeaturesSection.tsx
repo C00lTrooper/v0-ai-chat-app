@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useQuery } from "convex/react";
+import { useConvex, useQuery } from "convex/react";
+import { useConvexReady } from "@/hooks/use-convex-ready";
 import {
   BadgeCheck,
   ChevronDown,
@@ -15,7 +16,6 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { Project } from "@/lib/project-schema";
 import type { ProjectData } from "@/components/project-page/types";
-import { useAuth } from "@/components/auth-provider";
 import { Button } from "@/components/ui/button";
 import { projectPrimaryButtonClassName } from "@/lib/project-primary-button";
 import {
@@ -59,8 +59,6 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
-import { convexClient } from "@/lib/convex";
-
 type FeaturesSectionProps = {
   project: ProjectData;
 };
@@ -68,7 +66,8 @@ type FeaturesSectionProps = {
 type ParsedPhase = Project["project_wbs"][number];
 
 export function FeaturesSection({ project }: FeaturesSectionProps) {
-  const { sessionToken } = useAuth();
+  const convex = useConvex();
+  const ready = useConvexReady();
   const [parsedProject, phases] = useMemo(() => {
     try {
       const parsed = JSON.parse(project.data) as Project;
@@ -82,8 +81,8 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
 
   const features = useQuery(
     api.features.listByProject,
-    sessionToken
-      ? { token: sessionToken, projectId: project._id as Id<"projects"> }
+    ready
+      ? { projectId: project._id as Id<"projects"> }
       : "skip",
   );
 
@@ -122,14 +121,17 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
   >(() => new Set());
 
   const groupedByPhase = useMemo(() => {
-    const map = new Map<number, typeof features>();
+    type Row = NonNullable<typeof features>[number];
+    const map = new Map<number, Row[]>();
     if (!features) return map;
     for (const f of features) {
       const list = map.get(f.phaseOrder) ?? [];
       list.push(f);
       map.set(f.phaseOrder, list);
     }
-    for (const [key, list] of map) {
+    for (const key of map.keys()) {
+      const list = map.get(key);
+      if (!list) continue;
       list.sort((a, b) => a.order - b.order || a.createdAt - b.createdAt);
       map.set(key, list);
     }
@@ -138,8 +140,8 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
 
   const allTasksForProject = useQuery(
     api.features.listTasksForProject,
-    sessionToken
-      ? { token: sessionToken, projectId: project._id as Id<"projects"> }
+    ready
+      ? { projectId: project._id as Id<"projects"> }
       : "skip",
   );
 
@@ -179,8 +181,8 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
 
   const handleCreateFeature = async () => {
     if (
-      !sessionToken ||
-      !convexClient ||
+      !ready ||
+      !convex ||
       newFeaturePhase === null ||
       !newFeatureName.trim() ||
       !newFeatureDescription.trim()
@@ -188,8 +190,7 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
       return;
     }
 
-    await convexClient.mutation(api.features.create, {
-      token: sessionToken,
+    await convex.mutation(api.features.create, {
       projectId: project._id as Id<"projects">,
       phaseOrder: newFeaturePhase,
       name: newFeatureName.trim(),
@@ -409,25 +410,23 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
                           taskOrder: number;
                           featureId: string | null;
                         }) => {
-                          if (!sessionToken || !convexClient) return;
+                          if (!ready || !convex) return;
                           if (
                             task.featureId === (f._id as string) ||
                             task.featureId === f._id
                           ) {
-                            await convexClient.mutation(
+                            await convex.mutation(
                               api.features.unlinkTaskFromFeature,
                               {
-                                token: sessionToken,
                                 projectId: project._id as Id<"projects">,
                                 phaseOrder: task.phaseOrder,
                                 taskOrder: task.taskOrder,
                               },
                             );
                           } else {
-                            await convexClient.mutation(
+                            await convex.mutation(
                               api.features.linkTaskToFeature,
                               {
-                                token: sessionToken,
                                 projectId: project._id as Id<"projects">,
                                 phaseOrder: task.phaseOrder,
                                 taskOrder: task.taskOrder,
@@ -442,11 +441,10 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
                           taskOrder: number;
                           completed: boolean;
                         }) => {
-                          if (!sessionToken || !convexClient) return;
-                          await convexClient.mutation(
+                          if (!ready || !convex) return;
+                          await convex.mutation(
                             api.aiTools.updateTaskStatus,
                             {
-                              token: sessionToken,
                               projectId: project._id as Id<"projects">,
                               phaseOrder: task.phaseOrder,
                               taskOrder: task.taskOrder,
@@ -745,7 +743,7 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
             <Button variant="outline" onClick={closeNewFeatureModal}>
               Cancel
             </Button>
-            <Button onClick={handleCreateFeature} disabled={!sessionToken}>
+            <Button onClick={handleCreateFeature} disabled={!ready}>
               Create Feature
             </Button>
           </DialogFooter>
@@ -780,10 +778,9 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
                   onValueChange={async (v) => {
                     const next = Number(v);
                     setEditPhaseOrder(next);
-                    if (!sessionToken || !convexClient || !featureToEditId)
+                    if (!ready || !convex || !featureToEditId)
                       return;
-                    await convexClient.mutation(api.features.movePhase, {
-                      token: sessionToken,
+                    await convex.mutation(api.features.movePhase, {
                       featureId: featureToEditId as Id<"features">,
                       phaseOrder: next,
                     });
@@ -912,26 +909,24 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
                               className="flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-xs hover:bg-muted"
                               onClick={async () => {
                                 if (
-                                  !sessionToken ||
-                                  !convexClient ||
+                                  !ready ||
+                                  !convex ||
                                   !featureId
                                 )
                                   return;
                                 if (checked) {
-                                  await convexClient.mutation(
+                                  await convex.mutation(
                                     api.features.unlinkTaskFromFeature,
                                     {
-                                      token: sessionToken,
                                       projectId: project._id as Id<"projects">,
                                       phaseOrder: task.phaseOrder,
                                       taskOrder: task.taskOrder,
                                     },
                                   );
                                 } else {
-                                  await convexClient.mutation(
+                                  await convex.mutation(
                                     api.features.linkTaskToFeature,
                                     {
-                                      token: sessionToken,
                                       projectId: project._id as Id<"projects">,
                                       phaseOrder: task.phaseOrder,
                                       taskOrder: task.taskOrder,
@@ -1005,17 +1000,16 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
                             type="button"
                             className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
                             onClick={async () => {
-                              if (!sessionToken || !convexClient) return;
+                              if (!ready || !convex) return;
                               setOptimisticallyHiddenTasks((prev) => {
                                 const next = new Set(prev);
                                 next.add(key);
                                 return next;
                               });
                               try {
-                                await convexClient.mutation(
+                                await convex.mutation(
                                   api.features.unlinkTaskFromFeature,
                                   {
-                                    token: sessionToken,
                                     projectId: project._id as Id<"projects">,
                                     phaseOrder: t.phaseOrder,
                                     taskOrder: t.taskOrder,
@@ -1065,14 +1059,13 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
               <Button
                 onClick={async () => {
                   if (
-                    !sessionToken ||
-                    !convexClient ||
+                    !ready ||
+                    !convex ||
                     !featureToEditId ||
                     editPhaseOrder === null
                   )
                     return;
-                  await convexClient.mutation(api.features.save, {
-                    token: sessionToken,
+                  await convex.mutation(api.features.save, {
                     featureId: featureToEditId as Id<"features">,
                     name: editName,
                     description: editDescription,
@@ -1080,7 +1073,7 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
                   });
                   closeEditModal();
                 }}
-                disabled={!sessionToken}
+                disabled={!ready}
               >
                 Save
               </Button>
@@ -1128,10 +1121,9 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
                 onClick={async (e) => {
                   // Keep dialog open until mutation finishes.
                   e.preventDefault();
-                  if (!featureToDelete || !sessionToken || !convexClient)
+                  if (!featureToDelete || !ready || !convex)
                     return;
-                  await convexClient.mutation(api.features.deleteFeature, {
-                    token: sessionToken,
+                  await convex.mutation(api.features.deleteFeature, {
                     featureId: featureToDelete.id as Id<"features">,
                     mode: "delete_tasks",
                   });
@@ -1153,13 +1145,12 @@ export function FeaturesSection({ project }: FeaturesSectionProps) {
                 Cancel
               </AlertDialogCancel>
               <AlertDialogAction
-                variant="outline"
+                className="border border-border bg-background hover:bg-muted"
                 onClick={async (e) => {
                   e.preventDefault();
-                  if (!featureToDelete || !sessionToken || !convexClient)
+                  if (!featureToDelete || !ready || !convex)
                     return;
-                  await convexClient.mutation(api.features.deleteFeature, {
-                    token: sessionToken,
+                  await convex.mutation(api.features.deleteFeature, {
                     featureId: featureToDelete.id as Id<"features">,
                     mode: "unassign_tasks",
                   });

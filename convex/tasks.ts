@@ -2,27 +2,7 @@ import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-
-async function authenticateUser(
-  ctx: QueryCtx | MutationCtx,
-  token: string,
-): Promise<Doc<"users">> {
-  const session = await ctx.db
-    .query("sessions")
-    .withIndex("by_token", (q) => q.eq("token", token))
-    .unique();
-
-  if (!session || session.expiresAt <= Date.now()) {
-    throw new Error("Unauthenticated");
-  }
-
-  const user = await ctx.db.get(session.userId);
-  if (!user) {
-    throw new Error("User not found");
-  }
-
-  return user;
-}
+import { requireUserDoc } from "./lib/requireUser";
 
 async function assertCanAccessProject(
   ctx: QueryCtx | MutationCtx,
@@ -45,7 +25,6 @@ async function assertCanAccessProject(
 
 export const ensureTaskForProjectWbsTask = mutation({
   args: {
-    token: v.string(),
     projectId: v.id("projects"),
     phaseOrder: v.number(),
     taskOrder: v.number(),
@@ -55,7 +34,7 @@ export const ensureTaskForProjectWbsTask = mutation({
     taskId: v.id("tasks"),
   }),
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     await assertCanAccessProject(ctx, user._id, args.projectId);
 
     const existing = await ctx.db
@@ -88,7 +67,6 @@ export const ensureTaskForProjectWbsTask = mutation({
 
 export const listSubtasks = query({
   args: {
-    token: v.string(),
     taskId: v.id("tasks"),
   },
   returns: v.array(
@@ -100,7 +78,7 @@ export const listSubtasks = query({
     }),
   ),
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     const task = await ctx.db.get(args.taskId);
     if (!task) {
       throw new Error("Task not found");
@@ -125,13 +103,12 @@ export const listSubtasks = query({
 
 export const createSubtasks = mutation({
   args: {
-    token: v.string(),
     taskId: v.id("tasks"),
     titles: v.array(v.string()),
   },
   returns: v.array(v.id("subtasks")),
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     const task = await ctx.db.get(args.taskId);
     if (!task) {
       throw new Error("Task not found");
@@ -161,13 +138,12 @@ export const createSubtasks = mutation({
 
 export const toggleSubtaskCompleted = mutation({
   args: {
-    token: v.string(),
     subtaskId: v.id("subtasks"),
     completed: v.boolean(),
   },
   returns: v.id("subtasks"),
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     const subtask = await ctx.db.get(args.subtaskId);
     if (!subtask) {
       throw new Error("Subtask not found");
@@ -190,12 +166,11 @@ export const toggleSubtaskCompleted = mutation({
 
 export const deleteSubtask = mutation({
   args: {
-    token: v.string(),
     subtaskId: v.id("subtasks"),
   },
   returns: v.id("subtasks"),
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     const subtask = await ctx.db.get(args.subtaskId);
     if (!subtask) {
       throw new Error("Subtask not found");
@@ -215,7 +190,6 @@ export const deleteSubtask = mutation({
 
 export const listSubtasksForProject = query({
   args: {
-    token: v.string(),
     projectId: v.id("projects"),
   },
   returns: v.array(
@@ -234,7 +208,7 @@ export const listSubtasksForProject = query({
     }),
   ),
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     await assertCanAccessProject(ctx, user._id, args.projectId);
 
     const tasksForProject = await ctx.db

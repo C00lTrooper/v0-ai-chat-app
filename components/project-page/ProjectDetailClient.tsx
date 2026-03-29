@@ -6,8 +6,9 @@ import Link from "next/link";
 import { ChevronLeft, MessageSquare, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { useAuth } from "@/components/auth-provider";
-import { convexClient } from "@/lib/convex";
+import { useConvex, useConvexAuth } from "convex/react";
+import { useRedirectIfSignedOut } from "@/hooks/use-redirect-if-signed-out";
+import { ConvexSessionShell } from "@/components/convex-session-shell";
 import { api } from "@/convex/_generated/api";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, } from "@/components/ui/alert-dialog";
 import { ProjectPlanPage } from "./ProjectPlanPage";
@@ -15,7 +16,9 @@ import type { Project } from "@/lib/project-schema";
 import type { Id } from "@/convex/_generated/dataModel";
 
 export function ProjectDetailClient({ slug }: { slug: string }) {
-  const { isAuthenticated, sessionToken } = useAuth();
+  useRedirectIfSignedOut();
+  const { isAuthenticated } = useConvexAuth();
+  const convex = useConvex();
   const router = useRouter();
   const [project, setProject] = useState<Project | null>(null);
   const [projectId, setProjectId] = useState<Id<"projects"> | null>(null);
@@ -25,17 +28,17 @@ export function ProjectDetailClient({ slug }: { slug: string }) {
   const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
-    if (!isAuthenticated || !sessionToken || !convexClient) {
-      router.replace("/login");
+    if (!isAuthenticated) {
       return;
     }
 
     let cancelled = false;
+    setLoading(true);
+    setNotFound(false);
 
     void (async () => {
       try {
-        const result = await convexClient.query(api.projects.getBySlug, {
-          token: sessionToken,
+        const result = await convex.query(api.projects.getBySlug, {
           slug,
         });
         if (cancelled) return;
@@ -57,32 +60,28 @@ export function ProjectDetailClient({ slug }: { slug: string }) {
     return () => {
       cancelled = true;
     };
-  }, [slug, isAuthenticated, sessionToken, router]);
+  }, [slug, isAuthenticated, convex]);
 
   const handleDelete = useCallback(async () => {
-    if (!sessionToken || !convexClient || !projectId) return;
+    if (!isAuthenticated || !projectId) return;
     setIsDeleting(true);
     try {
-      await convexClient.mutation(api.projects.remove, {
-        token: sessionToken,
+      await convex.mutation(api.projects.remove, {
         projectId,
       });
       router.push("/");
     } finally {
       setIsDeleting(false);
     }
-  }, [sessionToken, projectId, router]);
+  }, [isAuthenticated, projectId, router, convex]);
 
-  if (loading) {
-    return (
+  return (
+    <ConvexSessionShell>
+      {loading ? (
       <div className="flex min-h-dvh items-center justify-center">
         <Spinner className="size-8 text-muted-foreground" />
       </div>
-    );
-  }
-
-  if (notFound || !project) {
-    return (
+      ) : notFound || !project ? (
       <div className="flex min-h-dvh flex-col items-center justify-center gap-4">
         <p className="text-muted-foreground">Project not found.</p>
         <Button variant="outline" size="sm" asChild>
@@ -92,10 +91,7 @@ export function ProjectDetailClient({ slug }: { slug: string }) {
           </Link>
         </Button>
       </div>
-    );
-  }
-
-  return (
+      ) : (
     <>
       <div className="sticky top-0 z-10 border-b border-border bg-background/95 px-4 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="flex items-center justify-between gap-2">
@@ -160,5 +156,7 @@ export function ProjectDetailClient({ slug }: { slug: string }) {
       </div>
       <ProjectPlanPage project={project} />
     </>
+      )}
+    </ConvexSessionShell>
   );
 }

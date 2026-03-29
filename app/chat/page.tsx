@@ -1,9 +1,18 @@
 "use client";
 
-import { useRef, useEffect, useState, useCallback, useMemo } from "react";
+import {
+  useRef,
+  useEffect,
+  useState,
+  useCallback,
+  useMemo,
+  Suspense,
+} from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useQuery } from "convex/react";
+import { useQuery, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { useRedirectIfSignedOut } from "@/hooks/use-redirect-if-signed-out";
+import { ConvexSessionShell } from "@/components/convex-session-shell";
 import { useProjectChat } from "@/hooks/use-project-chat";
 import { ChatHeader } from "@/components/chat-header";
 import { ChatMessage } from "@/components/chat-message";
@@ -13,15 +22,16 @@ import { SettingsDebug } from "@/components/settings-debug";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ChatControls } from "@/components/chat-controls";
 import { AlertCircle } from "lucide-react";
-import { useAuth } from "@/components/auth-provider";
+import { Spinner } from "@/components/ui/spinner";
 import type { Project } from "@/lib/project-schema";
 import type { AiContext } from "@/lib/ai-tools";
 import type { Id } from "@/convex/_generated/dataModel";
 
-export default function ChatPage() {
+function ChatPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { isAuthenticated, sessionToken } = useAuth();
+  useRedirectIfSignedOut();
+  const { isAuthenticated } = useConvexAuth();
 
   const initialChatId = searchParams.get("chatId");
   const initialProjectId = searchParams.get("projectId");
@@ -42,26 +52,21 @@ export default function ChatPage() {
   const [projectToLinkId, setProjectToLinkId] = useState<Id<"projects"> | null>(
     initialProjectId ? (initialProjectId as Id<"projects">) : null,
   );
-  const projects = useQuery(
-    api.projects.list,
-    sessionToken ? { token: sessionToken } : "skip",
-  );
+  const projects = useQuery(api.projects.list, isAuthenticated ? {} : "skip");
   const chatData = useQuery(
     api.chats.getChatWithMessages,
-    activeChatId && sessionToken
-      ? { token: sessionToken, chatId: activeChatId }
-      : "skip",
+    activeChatId && isAuthenticated ? { chatId: activeChatId } : "skip",
   );
   const projectDataForChat = useQuery(
     api.projects.getById,
-    chatData?.projectId && sessionToken
-      ? { token: sessionToken, projectId: chatData.projectId as Id<"projects"> }
+    chatData?.projectId && isAuthenticated
+      ? { projectId: chatData.projectId as Id<"projects"> }
       : "skip",
   );
 
   const aiContextData = useQuery(
     api.aiContext.getContext,
-    sessionToken ? { token: sessionToken } : "skip",
+    isAuthenticated ? {} : "skip",
   );
 
   const aiContext: AiContext | null = useMemo(() => {
@@ -175,12 +180,6 @@ export default function ChatPage() {
   const [hasProjectOverview, setHasProjectOverview] = useState(false);
 
   useEffect(() => {
-    if (!isAuthenticated) {
-      router.replace("/login");
-    }
-  }, [isAuthenticated, router]);
-
-  useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
@@ -226,12 +225,9 @@ export default function ChatPage() {
     }
   }, [resetUnassignedChat, searchParams, router]);
 
-  if (!isAuthenticated) {
-    return null;
-  }
-
   return (
-    <>
+    <ConvexSessionShell>
+      <>
       <div className="flex h-dvh flex-col bg-background">
         <ChatHeader
           hasMessages={messages.length > 0}
@@ -303,6 +299,21 @@ export default function ChatPage() {
         error={error}
         onClear={handleNewChat}
       />
-    </>
+      </>
+    </ConvexSessionShell>
+  );
+}
+
+export default function ChatPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-dvh items-center justify-center bg-background">
+          <Spinner className="size-8 text-muted-foreground" />
+        </div>
+      }
+    >
+      <ChatPageContent />
+    </Suspense>
   );
 }

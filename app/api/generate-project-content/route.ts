@@ -1,3 +1,4 @@
+import { auth } from "@clerk/nextjs/server";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@/convex/_generated/api";
 import { extractFirstJsonObject } from "@/lib/parse-project-json";
@@ -18,17 +19,34 @@ import type { Id } from "@/convex/_generated/dataModel";
 const MODEL = "google/gemini-3-flash-preview";
 
 async function verifyOwnerAccess(
-  token: string,
+  convexJwt: string,
   projectId: Id<"projects">,
 ): Promise<boolean> {
   const url = process.env.NEXT_PUBLIC_CONVEX_URL;
   if (!url) return false;
   const client = new ConvexHttpClient(url);
-  const row = await client.query(api.projects.getById, { token, projectId });
+  client.setAuth(convexJwt);
+  const row = await client.query(api.projects.getById, { projectId });
   return Boolean(row?.isOwner);
 }
 
 export async function POST(request: Request) {
+  const { userId, getToken } = await auth();
+  if (!userId) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const convexJwt = await getToken({ template: "convex" });
+  if (!convexJwt) {
+    return new Response(
+      JSON.stringify({ error: "Missing Convex JWT (Clerk Convex template)" }),
+      { status: 401, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
   const body = await request.json().catch(() => ({}));
   const mode = body.mode === "regenerate" ? "regenerate" : "generate";
 
@@ -40,17 +58,16 @@ export async function POST(request: Request) {
     );
   }
 
-  const token = typeof body.token === "string" ? body.token : "";
   const projectIdRaw = body.projectId;
-  if (!token || typeof projectIdRaw !== "string" || !projectIdRaw) {
+  if (typeof projectIdRaw !== "string" || !projectIdRaw) {
     return new Response(
-      JSON.stringify({ error: "token and projectId are required" }),
+      JSON.stringify({ error: "projectId is required" }),
       { status: 400, headers: { "Content-Type": "application/json" } },
     );
   }
 
   const projectId = projectIdRaw as Id<"projects">;
-  const ok = await verifyOwnerAccess(token, projectId);
+  const ok = await verifyOwnerAccess(convexJwt, projectId);
   if (!ok) {
     return new Response(
       JSON.stringify({ error: "Not authorized" }),

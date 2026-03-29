@@ -25,8 +25,8 @@ import {
 } from "@/components/ui/empty";
 import { Spinner } from "@/components/ui/spinner";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useAuth } from "@/components/auth-provider";
-import { convexClient } from "@/lib/convex";
+import { useConvex } from "convex/react";
+import { useConvexReady } from "@/hooks/use-convex-ready";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -45,13 +45,14 @@ interface ProjectsViewProps {
 }
 
 export function ProjectsView({ onOpenChat }: ProjectsViewProps) {
-  const { sessionToken } = useAuth();
+  const convex = useConvex();
+  const ready = useConvexReady();
   const [projects, setProjects] = useState<ProjectMeta[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!sessionToken || !convexClient) {
+    if (!ready) {
       setLoading(false);
       return;
     }
@@ -62,9 +63,7 @@ export function ProjectsView({ onOpenChat }: ProjectsViewProps) {
 
     void (async () => {
       try {
-        const result = await convexClient.query(api.projects.list, {
-          token: sessionToken,
-        });
+        const result = await convex.query(api.projects.list, {});
         if (!cancelled) setProjects(result);
       } catch (err) {
         if (!cancelled)
@@ -79,7 +78,7 @@ export function ProjectsView({ onOpenChat }: ProjectsViewProps) {
     return () => {
       cancelled = true;
     };
-  }, [sessionToken]);
+  }, [ready, convex]);
 
   if (loading) {
     return (

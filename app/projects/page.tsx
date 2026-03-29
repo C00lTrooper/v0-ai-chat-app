@@ -1,11 +1,12 @@
 "use client";
 
 import "./projects.css";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery, useMutation } from "convex/react";
+import { useQuery, useMutation, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { useAuth } from "@/components/auth-provider";
+import { useRedirectIfSignedOut } from "@/hooks/use-redirect-if-signed-out";
+import { ConvexSessionShell } from "@/components/convex-session-shell";
 import { ChatHeader } from "@/components/chat-header";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -85,13 +86,7 @@ function statusFromCompletion(percent: number): {
   return { label: "Building", color: "bg-blue-500" };
 }
 
-function ProjectCard({
-  project,
-  sessionToken,
-}: {
-  project: ProjectCardData;
-  sessionToken: string;
-}) {
+function ProjectCard({ project }: { project: ProjectCardData }) {
   const router = useRouter();
   const togglePin = useMutation(api.projects.togglePin);
   const renameMut = useMutation(api.projects.rename);
@@ -109,7 +104,7 @@ function ProjectCard({
   const status = statusFromCompletion(percent);
 
   const handlePin = async () => {
-    await togglePin({ token: sessionToken, projectId: project._id });
+    await togglePin({ projectId: project._id });
   };
 
   const handleRename = async () => {
@@ -120,7 +115,6 @@ function ProjectCard({
     setRenaming(true);
     try {
       await renameMut({
-        token: sessionToken,
         projectId: project._id,
         projectName: newName.trim(),
       });
@@ -133,7 +127,7 @@ function ProjectCard({
   const handleDelete = async () => {
     setDeleting(true);
     try {
-      await removeMut({ token: sessionToken, projectId: project._id });
+      await removeMut({ projectId: project._id });
     } finally {
       setDeleting(false);
       setDeleteOpen(false);
@@ -327,7 +321,8 @@ function slugFromName(name: string): string {
 
 export default function ProjectsPage() {
   const router = useRouter();
-  const { isAuthenticated, sessionToken } = useAuth();
+  useRedirectIfSignedOut();
+  const { isAuthenticated } = useConvexAuth();
   const [search, setSearch] = useState("");
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
@@ -336,15 +331,9 @@ export default function ProjectsPage() {
 
   const createProject = useMutation(api.projects.create);
 
-  useEffect(() => {
-    if (!isAuthenticated) {
-      router.replace("/login");
-    }
-  }, [isAuthenticated, router]);
-
   const projects = useQuery(
     api.projects.listForPage,
-    sessionToken ? { token: sessionToken } : "skip",
+    isAuthenticated ? {} : "skip",
   );
 
   const filtered = useMemo(() => {
@@ -359,11 +348,10 @@ export default function ProjectsPage() {
 
   const handleCreateProject = async () => {
     const name = newProjectName.trim();
-    if (!name || !sessionToken) return;
+    if (!name || !isAuthenticated) return;
     setCreating(true);
     try {
       const result = await createProject({
-        token: sessionToken,
         slug: slugFromName(name),
         projectName: name,
         summaryName: name,
@@ -379,9 +367,8 @@ export default function ProjectsPage() {
     }
   };
 
-  if (!isAuthenticated) return null;
-
   return (
+    <ConvexSessionShell>
     <div className="flex min-h-dvh flex-col bg-background">
       <ChatHeader hasMessages={false} onClear={() => router.push("/chat")} />
 
@@ -484,7 +471,7 @@ export default function ProjectsPage() {
                   <div className="projects-grid">
                     {pinned.map((p) => (
                       <div key={p._id} className="min-w-0">
-                        <ProjectCard project={p} sessionToken={sessionToken!} />
+                        <ProjectCard project={p} />
                       </div>
                     ))}
                   </div>
@@ -500,7 +487,7 @@ export default function ProjectsPage() {
                   <div className="projects-grid">
                     {other.map((p) => (
                       <div key={p._id} className="min-w-0">
-                        <ProjectCard project={p} sessionToken={sessionToken!} />
+                        <ProjectCard project={p} />
                       </div>
                     ))}
                   </div>
@@ -520,5 +507,6 @@ export default function ProjectsPage() {
         </div>
       </main>
     </div>
+    </ConvexSessionShell>
   );
 }

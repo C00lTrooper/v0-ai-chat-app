@@ -7,8 +7,8 @@ import { Input } from "@/components/ui/input";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { useAuth } from "@/components/auth-provider";
 import { api } from "@/convex/_generated/api";
+import { useConvexReady } from "@/hooks/use-convex-ready";
 import { toast } from "@/hooks/use-toast";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { ProjectData } from "@/components/project-page/types";
@@ -19,11 +19,11 @@ type ChatSectionProps = {
 
 export function ChatSection({ project }: ChatSectionProps) {
   const router = useRouter();
-  const { sessionToken } = useAuth();
+  const ready = useConvexReady();
   const chats = useQuery(
     api.chats.listChatsByProject,
-    sessionToken && project._id
-      ? { token: sessionToken, projectId: project._id as Id<"projects"> }
+    ready && project._id
+      ? { projectId: project._id as Id<"projects"> }
       : "skip",
   );
   const deleteChatMut = useMutation(api.chats.deleteChat);
@@ -40,20 +40,19 @@ export function ChatSection({ project }: ChatSectionProps) {
   };
 
   const handleNewChat = () => {
-    if (!sessionToken || !project._id) return;
+    if (!ready || !project._id) return;
     setCreating(true);
     router.push(`/chat?projectId=${project._id}`);
     setCreating(false);
   };
 
   const handleRenameSubmit = async () => {
-    if (!sessionToken || !renameChatId || !renameValue.trim()) {
+    if (!ready || !renameChatId || !renameValue.trim()) {
       setRenameChatId(null);
       return;
     }
     try {
       await renameChatMut({
-        token: sessionToken,
         chatId: renameChatId,
         name: renameValue.trim(),
       });
@@ -66,10 +65,10 @@ export function ChatSection({ project }: ChatSectionProps) {
   };
 
   const handleDeleteConfirm = async () => {
-    if (!sessionToken || !deleteChatId) return;
+    if (!ready || !deleteChatId) return;
     setDeleting(true);
     try {
-      await deleteChatMut({ token: sessionToken, chatId: deleteChatId });
+      await deleteChatMut({ chatId: deleteChatId });
       toast({ title: "Chat deleted." });
       setDeleteChatId(null);
     } catch {

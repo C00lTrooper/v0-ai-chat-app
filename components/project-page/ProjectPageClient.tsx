@@ -2,10 +2,10 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery } from "convex/react";
-import { useAuth } from "@/components/auth-provider";
+import { useConvex, useConvexAuth, useQuery } from "convex/react";
+import { useRedirectIfSignedOut } from "@/hooks/use-redirect-if-signed-out";
+import { ConvexSessionShell } from "@/components/convex-session-shell";
 import { useLastVisitedProject } from "@/components/last-visited-project-provider";
-import { convexClient } from "@/lib/convex";
 import { api } from "@/convex/_generated/api";
 import { toast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -142,7 +142,9 @@ function SectionContent({
 // ---------------------------------------------------------------------------
 
 export function ProjectPageClient({ projectId }: { projectId: string }) {
-  const { isAuthenticated, sessionToken } = useAuth();
+  useRedirectIfSignedOut();
+  const { isAuthenticated } = useConvexAuth();
+  const convex = useConvex();
   const router = useRouter();
   const lastVisitedCtx = useLastVisitedProject();
   const [activeSection, setActiveSection] = useState<Section>("overview");
@@ -163,29 +165,20 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
 
   const project = useQuery(
     api.projects.getById,
-    sessionToken && isAuthenticated
-      ? { token: sessionToken, projectId: projectId as Id<"projects"> }
-      : "skip",
+    isAuthenticated ? { projectId: projectId as Id<"projects"> } : "skip",
   );
 
-  const loading =
-    Boolean(sessionToken && isAuthenticated) && project === undefined;
+  const loading = Boolean(isAuthenticated) && project === undefined;
 
   useEffect(() => {
-    if (!isAuthenticated || !sessionToken) {
-      router.replace("/login");
-    }
-  }, [isAuthenticated, sessionToken, router]);
-
-  useEffect(() => {
-    if (project === null && sessionToken && isAuthenticated) {
+    if (project === null && isAuthenticated) {
       toast({
         variant: "destructive",
         title: "You don't have access to this project.",
       });
       router.replace("/projects");
     }
-  }, [project, sessionToken, isAuthenticated, router]);
+  }, [project, isAuthenticated, router]);
 
   useEffect(() => {
     if (project) {
@@ -193,13 +186,8 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
     }
   }, [project, lastVisitedCtx]);
 
-  if (loading) {
-    return <ProjectPageSkeleton />;
-  }
-
-  if (!project) return null;
-
   const needsGeneration = (() => {
+    if (!project) return false;
     if (!project.data || project.data === "{}") return true;
     try {
       const parsed = JSON.parse(project.data) as { project_wbs?: unknown[] };
@@ -214,7 +202,7 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
     taskOrder: number,
     completed: boolean,
   ) => {
-    if (!sessionToken || !convexClient || !project) return;
+    if (!isAuthenticated || !convex || !project) return;
 
     let parsed: Project;
     try {
@@ -257,8 +245,7 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
     const dataStr = JSON.stringify(updated);
 
     try {
-      await convexClient.mutation(api.projects.update, {
-        token: sessionToken,
+      await convex.mutation(api.projects.update, {
         projectId: project._id as Id<"projects">,
         data: dataStr,
       });
@@ -296,9 +283,8 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
 
   const normalizeGeneratedProject = async (
     data: Project,
-    token: string,
   ): Promise<Project> => {
-    if (!convexClient) return data;
+    if (!convex) return data;
 
     const updatedPhases = [];
 
@@ -392,10 +378,9 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
           let attempts = 0;
           while (attempts < 3) {
             try {
-              const result = await convexClient.query(
+              const result = await convex.query(
                 api.conflicts.checkTimeConflicts,
                 {
-                  token,
                   date: chunk.date,
                   startTime: chunk.time,
                   endTime: chunk.endTime,
@@ -433,7 +418,7 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
   };
 
   const handleGenerateProject = async () => {
-    if (!sessionToken || !project || generating) return;
+    if (!isAuthenticated || !project || generating) return;
     setGenerating(true);
     try {
       const res = await fetch("/api/generate-project", {
@@ -455,7 +440,7 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
         });
         return;
       }
-      if (!convexClient || !json.data) {
+      if (!convex || !json.data) {
         toast({
           variant: "destructive",
           title: "Invalid response from server.",
@@ -469,11 +454,9 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
 
       const normalizedData = await normalizeGeneratedProject(
         json.data as Project,
-        sessionToken,
       );
 
-      await convexClient.mutation(api.projects.update, {
-        token: sessionToken,
+      await convex.mutation(api.projects.update, {
         projectId: project._id as Id<"projects">,
         data: JSON.stringify(normalizedData),
         ...(shouldUpdateTargetDate && { targetDate: generatedTargetDate }),
@@ -488,6 +471,10 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
   };
 
   return (
+    <ConvexSessionShell>
+      {loading ? (
+        <ProjectPageSkeleton />
+      ) : !project ? null : (
     <div className="flex h-dvh flex-col overflow-hidden bg-background">
       <ChatHeader
         hasMessages={false}
@@ -638,14 +625,16 @@ export function ProjectPageClient({ projectId }: { projectId: string }) {
           />
         </main>
       </div>
-      {sessionToken && (
+      {isAuthenticated && (
         <GenerateProjectContentModal
           open={generateContentOpen}
           onOpenChange={setGenerateContentOpen}
           project={project}
-          sessionToken={sessionToken}
+          ready={isAuthenticated}
         />
       )}
     </div>
+      )}
+    </ConvexSessionShell>
   );
 }
