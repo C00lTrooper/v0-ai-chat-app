@@ -11,7 +11,7 @@ import {
   Home,
   Wallet,
 } from "lucide-react";
-import { UserButton } from "@clerk/nextjs";
+import { useUser, SignInButton } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -20,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useLastVisitedProject } from "@/components/last-visited-project-provider";
 
 interface ChatHeaderProps {
@@ -27,6 +28,19 @@ interface ChatHeaderProps {
   onClear: () => void;
   projectName?: string;
   projectId?: string;
+}
+
+function userInitials(
+  firstName: string | null,
+  lastName: string | null,
+  email: string | undefined,
+): string {
+  const a = firstName?.trim()?.[0];
+  const b = lastName?.trim()?.[0];
+  if (a && b) return `${a}${b}`.toUpperCase();
+  if (a) return a.toUpperCase();
+  if (email) return email.slice(0, 2).toUpperCase();
+  return "?";
 }
 
 export function ChatHeader({
@@ -38,6 +52,7 @@ export function ChatHeader({
   const { resolvedTheme, setTheme } = useTheme();
   const router = useRouter();
   const pathname = usePathname();
+  const { user, isLoaded } = useUser();
   const lastVisited = useLastVisitedProject();
 
   const displayProjectId = projectId ?? lastVisited?.projectId ?? undefined;
@@ -47,6 +62,10 @@ export function ChatHeader({
   const toggleTheme = () => {
     setTheme(resolvedTheme === "dark" ? "light" : "dark");
   };
+
+  const email =
+    user?.primaryEmailAddress?.emailAddress ??
+    user?.emailAddresses?.[0]?.emailAddress;
 
   return (
     <header className="fixed left-0 right-0 top-0 z-30 flex h-14 shrink-0 items-center justify-between border-b border-border bg-background px-4">
@@ -198,7 +217,46 @@ export function ChatHeader({
         >
           <Sun className="size-4" />
         </Button>
-        <UserButton />
+        {!isLoaded ? (
+          <div
+            className="size-8 shrink-0 rounded-full bg-muted animate-pulse"
+            aria-hidden
+          />
+        ) : user ? (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="rounded-full bg-foreground p-0 text-background transition-none hover:bg-foreground hover:text-background dark:hover:bg-foreground dark:hover:text-background"
+            onClick={() => router.push("/settings")}
+            aria-label="Open settings"
+          >
+            <Avatar className="size-8">
+              <AvatarImage
+                src={user.imageUrl}
+                alt=""
+                className="object-cover"
+              />
+              <AvatarFallback className="bg-transparent text-xs font-medium text-background">
+                {userInitials(
+                  user.firstName,
+                  user.lastName,
+                  email ?? undefined,
+                )}
+              </AvatarFallback>
+            </Avatar>
+            <span className="sr-only">Open settings</span>
+          </Button>
+        ) : (
+          <SignInButton mode="modal">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-sm font-medium text-foreground"
+            >
+              Sign in
+            </Button>
+          </SignInButton>
+        )}
       </div>
     </header>
   );
