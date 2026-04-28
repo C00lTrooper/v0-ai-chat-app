@@ -1,8 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { useQuery } from "convex/react";
-import { useAuth } from "@/components/auth-provider";
+import { useConvexAuth, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type {
   CalendarEvent,
@@ -52,16 +51,17 @@ interface RawCalendarEvent {
 }
 
 export function useCalendarData() {
-  const { sessionToken } = useAuth();
+  const { isLoading, isAuthenticated } = useConvexAuth();
+  const ready = !isLoading && isAuthenticated;
 
   const rawProjects = useQuery(
     api.projects.listWithTasks,
-    sessionToken ? { token: sessionToken } : "skip",
+    ready ? {} : "skip",
   );
 
   const contextResult = useQuery(
     api.aiContext.getContext,
-    sessionToken ? { token: sessionToken } : "skip",
+    ready ? {} : "skip",
   );
 
   const rawCalendarEvents: RawCalendarEvent[] = useMemo(() => {
@@ -76,8 +76,8 @@ export function useCalendarData() {
   }, [contextResult]);
 
   const loading =
-    (sessionToken && rawProjects === undefined) ||
-    (sessionToken && contextResult === undefined);
+    (ready && rawProjects === undefined) ||
+    (ready && contextResult === undefined);
 
   const { projects, events, projectPhasesByProjectId } = useMemo(() => {
     const projectsList: RawProject[] = Array.isArray(rawProjects) ? rawProjects : [];

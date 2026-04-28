@@ -2,24 +2,7 @@ import { query } from "./_generated/server";
 import { v } from "convex/values";
 import type { QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-
-async function authenticateUser(
-  ctx: QueryCtx,
-  token: string,
-): Promise<Doc<"users">> {
-  const session = await ctx.db
-    .query("sessions")
-    .withIndex("by_token", (q) => q.eq("token", token))
-    .unique();
-
-  if (!session || session.expiresAt <= Date.now()) {
-    throw new Error("Unauthenticated");
-  }
-
-  const user = await ctx.db.get(session.userId);
-  if (!user) throw new Error("User not found");
-  return user;
-}
+import { requireUserDoc } from "./lib/requireUser";
 
 async function getAccessibleProjects(
   ctx: QueryCtx,
@@ -47,9 +30,9 @@ async function getAccessibleProjects(
 }
 
 export const getContext = query({
-  args: { token: v.string() },
-  handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+  args: {},
+  handler: async (ctx) => {
+    const user = await requireUserDoc(ctx);
     const projects = await getAccessibleProjects(ctx, user._id);
 
     const projectSummaries = [];

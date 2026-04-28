@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { useAuth } from "@/components/auth-provider";
-import { convexClient } from "@/lib/convex";
+import { useConvex } from "convex/react";
+import { useConvexReady } from "@/hooks/use-convex-ready";
 import { api } from "@/convex/_generated/api";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/hooks/use-toast";
@@ -277,21 +277,21 @@ function RecentTransactions({
 }
 
 export function BudgetSection({ project }: { project: ProjectData }) {
-  const { sessionToken } = useAuth();
+  const convex = useConvex();
+  const ready = useConvexReady();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!sessionToken || !convexClient) return;
+    if (!ready || !convex) return;
 
     let cancelled = false;
 
     void (async () => {
       try {
-        const result = await convexClient.query(
+        const result = await convex.query(
           api.budget.listTransactionsByProject,
           {
-            token: sessionToken,
             projectId: project._id as Id<"projects">,
           },
         );
@@ -306,7 +306,7 @@ export function BudgetSection({ project }: { project: ProjectData }) {
     return () => {
       cancelled = true;
     };
-  }, [sessionToken, project._id]);
+  }, [ready, project._id]);
 
   const [estimatedBudget, setEstimatedBudget] = useState(() => {
     try {
@@ -319,7 +319,7 @@ export function BudgetSection({ project }: { project: ProjectData }) {
   const [savingBudget, setSavingBudget] = useState(false);
 
   const handleBudgetSave = async (value: number) => {
-    if (!sessionToken || !convexClient) return;
+    if (!ready || !convex) return;
     setSavingBudget(true);
     try {
       let parsed: Project;
@@ -338,8 +338,7 @@ export function BudgetSection({ project }: { project: ProjectData }) {
         },
       };
 
-      await convexClient.mutation(api.projects.update, {
-        token: sessionToken,
+      await convex.mutation(api.projects.update, {
         projectId: project._id as Id<"projects">,
         data: JSON.stringify(updated),
       });

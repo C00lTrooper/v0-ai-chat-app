@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
+import { ClerkProvider } from "@clerk/nextjs";
 import { ThemeProvider } from "@/components/theme-provider";
-import { AuthProvider } from "@/components/auth-provider";
 import { ConvexClientProvider } from "@/components/convex-client-provider";
+import { EnsureConvexUser } from "@/components/ensure-convex-user";
 import { LastVisitedProjectProvider } from "@/components/last-visited-project-provider";
 import { Toaster } from "@/components/ui/toaster";
 import "./globals.css";
@@ -42,17 +43,19 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className="font-sans antialiased">
-        <ConvexClientProvider>
-          <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-            <AuthProvider>
-              <LastVisitedProjectProvider>
-                {children}
-                <Toaster />
-                <Analytics />
-              </LastVisitedProjectProvider>
-            </AuthProvider>
-          </ThemeProvider>
-        </ConvexClientProvider>
+        <ClerkProvider>
+          <ConvexClientProvider>
+            <EnsureConvexUser>
+              <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+                <LastVisitedProjectProvider>
+                  {children}
+                  <Toaster />
+                  <Analytics />
+                </LastVisitedProjectProvider>
+              </ThemeProvider>
+            </EnsureConvexUser>
+          </ConvexClientProvider>
+        </ClerkProvider>
       </body>
     </html>
   );

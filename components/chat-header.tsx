@@ -5,24 +5,14 @@ import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import {
   CalendarDays,
-  LogOut,
   MessageSquare,
   RotateCcw,
-  Settings,
   Sun,
-  CircleUser,
   Home,
   Wallet,
 } from "lucide-react";
+import { useUser, SignInButton } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   Select,
   SelectContent,
@@ -30,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useAuth } from "@/components/auth-provider";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useLastVisitedProject } from "@/components/last-visited-project-provider";
 
 interface ChatHeaderProps {
@@ -38,6 +28,19 @@ interface ChatHeaderProps {
   onClear: () => void;
   projectName?: string;
   projectId?: string;
+}
+
+function userInitials(
+  firstName: string | null,
+  lastName: string | null,
+  email: string | undefined,
+): string {
+  const a = firstName?.trim()?.[0];
+  const b = lastName?.trim()?.[0];
+  if (a && b) return `${a}${b}`.toUpperCase();
+  if (a) return a.toUpperCase();
+  if (email) return email.slice(0, 2).toUpperCase();
+  return "?";
 }
 
 export function ChatHeader({
@@ -49,7 +52,7 @@ export function ChatHeader({
   const { resolvedTheme, setTheme } = useTheme();
   const router = useRouter();
   const pathname = usePathname();
-  const { logout, userEmail } = useAuth();
+  const { user, isLoaded } = useUser();
   const lastVisited = useLastVisitedProject();
 
   const displayProjectId = projectId ?? lastVisited?.projectId ?? undefined;
@@ -59,6 +62,10 @@ export function ChatHeader({
   const toggleTheme = () => {
     setTheme(resolvedTheme === "dark" ? "light" : "dark");
   };
+
+  const email =
+    user?.primaryEmailAddress?.emailAddress ??
+    user?.emailAddresses?.[0]?.emailAddress;
 
   return (
     <header className="fixed left-0 right-0 top-0 z-30 flex h-14 shrink-0 items-center justify-between border-b border-border bg-background px-4">
@@ -201,64 +208,55 @@ export function ChatHeader({
             </Button>
           </div>
         </nav>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="text-foreground"
+          onClick={toggleTheme}
+          aria-label="Toggle theme"
+        >
+          <Sun className="size-4" />
+        </Button>
+        {!isLoaded ? (
+          <div
+            className="size-8 shrink-0 rounded-full bg-muted animate-pulse"
+            aria-hidden
+          />
+        ) : user ? (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="rounded-full bg-foreground p-0 text-background transition-none hover:bg-foreground hover:text-background dark:hover:bg-foreground dark:hover:text-background"
+            onClick={() => router.push("/settings")}
+            aria-label="Open settings"
+          >
+            <Avatar className="size-8">
+              <AvatarImage
+                src={user.imageUrl}
+                alt=""
+                className="object-cover"
+              />
+              <AvatarFallback className="bg-transparent text-xs font-medium text-background">
+                {userInitials(
+                  user.firstName,
+                  user.lastName,
+                  email ?? undefined,
+                )}
+              </AvatarFallback>
+            </Avatar>
+            <span className="sr-only">Open settings</span>
+          </Button>
+        ) : (
+          <SignInButton mode="modal">
             <Button
               variant="ghost"
-              size="icon-sm"
-              className="bg-foreground text-background transition-none hover:bg-foreground hover:text-background dark:hover:bg-foreground dark:hover:text-background"
+              size="sm"
+              className="text-sm font-medium text-foreground"
             >
-              <CircleUser className="size-4" />
-              <span className="sr-only">Profile menu</span>
+              Sign in
             </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56">
-            <DropdownMenuLabel className="flex flex-col gap-0.5">
-              <span className="text-xs text-muted-foreground">
-                Signed in as
-              </span>
-              <span className="truncate text-sm font-medium">
-                {userEmail ?? "guest@example.com"}
-              </span>
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onClick={toggleTheme}
-              className="flex items-center gap-2"
-            >
-              <Sun className="size-4" />
-              <span>Toggle theme</span>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onClick={() => {
-                router.push("/account");
-              }}
-            >
-              <CircleUser className="size-4" />
-              <span>Account</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => {
-                router.push("/settings");
-              }}
-            >
-              <Settings className="size-4" />
-              <span>Settings</span>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              variant="destructive"
-              onClick={() => {
-                logout();
-                router.push("/login");
-              }}
-            >
-              <LogOut className="size-4" />
-              <span>Log out</span>
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+          </SignInButton>
+        )}
       </div>
     </header>
   );

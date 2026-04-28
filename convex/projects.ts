@@ -1,6 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import type { QueryCtx, MutationCtx } from "./_generated/server";
+import type { QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { Project } from "../lib/project-schema";
 import { phaseScheduleFingerprint } from "../lib/wbs-order-from-dates";
@@ -8,27 +8,8 @@ import {
   normalizeProjectWbsOrders,
   remapConvexTasksForWbsChange,
 } from "./wbsPersistence";
-
-async function authenticateUser(
-  ctx: QueryCtx | MutationCtx,
-  token: string,
-): Promise<Doc<"users">> {
-  const session = await ctx.db
-    .query("sessions")
-    .withIndex("by_token", (q) => q.eq("token", token))
-    .unique();
-
-  if (!session || session.expiresAt <= Date.now()) {
-    throw new Error("Unauthenticated");
-  }
-
-  const user = await ctx.db.get(session.userId);
-  if (!user) {
-    throw new Error("User not found");
-  }
-
-  return user;
-}
+import { requireUserDoc } from "./lib/requireUser";
+import { deleteProjectCascade } from "./lib/deleteProjectCascade";
 
 /** Full JSON envelope for new projects (empty WBS until user adds phases or runs generator). */
 function buildInitialProjectData(args: {
@@ -63,9 +44,9 @@ function buildInitialProjectData(args: {
 // ---------------------------------------------------------------------------
 
 export const list = query({
-  args: { token: v.string() },
-  handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+  args: {},
+  handler: async (ctx) => {
+    const user = await requireUserDoc(ctx);
 
     const owned = await ctx.db
       .query("projects")
@@ -101,9 +82,9 @@ export const list = query({
 });
 
 export const listWithTasks = query({
-  args: { token: v.string() },
-  handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+  args: {},
+  handler: async (ctx) => {
+    const user = await requireUserDoc(ctx);
 
     const owned = await ctx.db
       .query("projects")
@@ -138,9 +119,9 @@ export const listWithTasks = query({
 });
 
 export const getBySlug = query({
-  args: { token: v.string(), slug: v.string() },
+  args: { slug: v.string() },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
 
     const project = await ctx.db
       .query("projects")
@@ -167,9 +148,9 @@ export const getBySlug = query({
 });
 
 export const getById = query({
-  args: { token: v.string(), projectId: v.id("projects") },
+  args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
 
     const project = await ctx.db.get(args.projectId);
     if (!project) return null;
@@ -192,10 +173,10 @@ export const getById = query({
 });
 
 export const getNeedsReschedule = query({
-  args: { token: v.string(), projectId: v.id("projects") },
+  args: { projectId: v.id("projects") },
   returns: v.boolean(),
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     const project = await ctx.db.get(args.projectId);
     if (!project) return false;
 
@@ -213,7 +194,6 @@ export const getNeedsReschedule = query({
 
 export const create = mutation({
   args: {
-    token: v.string(),
     slug: v.string(),
     projectName: v.string(),
     summaryName: v.string(),
@@ -221,7 +201,7 @@ export const create = mutation({
     targetDate: v.string(),
   },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     const now = Date.now();
 
     let slug = args.slug;
@@ -261,7 +241,6 @@ export const create = mutation({
 
 export const update = mutation({
   args: {
-    token: v.string(),
     projectId: v.id("projects"),
     projectName: v.optional(v.string()),
     summaryName: v.optional(v.string()),
@@ -270,7 +249,7 @@ export const update = mutation({
     data: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
 
     const project = await ctx.db.get(args.projectId);
     if (!project || project.ownerId !== user._id) {
@@ -347,61 +326,28 @@ export const update = mutation({
 
 export const remove = mutation({
   args: {
-    token: v.string(),
     projectId: v.id("projects"),
   },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
 
     const project = await ctx.db.get(args.projectId);
     if (!project || project.ownerId !== user._id) {
       throw new Error("Not found or not authorized");
     }
 
-    // Delete all chats and their messages for this project
-    const chats = await ctx.db
-      .query("chats")
-      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
-      .collect();
-
-    for (const chat of chats) {
-      const messages = await ctx.db
-        .query("chatMessages")
-        .withIndex("by_chatId", (q) => q.eq("chatId", chat._id))
-        .collect();
-
-      for (const msg of messages) {
-        await ctx.db.delete(msg._id);
-      }
-
-      await ctx.db.delete(chat._id);
-    }
-
-    // Delete all share records for this project
-    const shares = await ctx.db
-      .query("projectShares")
-      .withIndex("by_projectId_and_userId", (q) =>
-        q.eq("projectId", args.projectId),
-      )
-      .collect();
-
-    for (const share of shares) {
-      await ctx.db.delete(share._id);
-    }
-
-    await ctx.db.delete(args.projectId);
+    await deleteProjectCascade(ctx, args.projectId);
     return { ok: true as const };
   },
 });
 
 export const share = mutation({
   args: {
-    token: v.string(),
     projectId: v.id("projects"),
     userEmail: v.string(),
   },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
 
     const project = await ctx.db.get(args.projectId);
     if (!project || project.ownerId !== user._id) {
@@ -438,12 +384,11 @@ export const share = mutation({
 
 export const unshare = mutation({
   args: {
-    token: v.string(),
     projectId: v.id("projects"),
     userId: v.id("users"),
   },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
 
     const project = await ctx.db.get(args.projectId);
     if (!project || project.ownerId !== user._id) {
@@ -500,11 +445,11 @@ async function getAccessibleProjects(
 }
 
 export const listForPage = query({
-  args: { token: v.string() },
-  handler: async (ctx, args) => {
+  args: {},
+  handler: async (ctx) => {
     let user;
     try {
-      user = await authenticateUser(ctx, args.token);
+      user = await requireUserDoc(ctx);
     } catch {
       return [];
     }
@@ -555,11 +500,10 @@ export const listForPage = query({
 
 export const togglePin = mutation({
   args: {
-    token: v.string(),
     projectId: v.id("projects"),
   },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     const project = await ctx.db.get(args.projectId);
 
     if (!project) throw new Error("Not found");
@@ -580,12 +524,11 @@ export const togglePin = mutation({
 
 export const rename = mutation({
   args: {
-    token: v.string(),
     projectId: v.id("projects"),
     projectName: v.string(),
   },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     const project = await ctx.db.get(args.projectId);
 
     if (!project || project.ownerId !== user._id) {

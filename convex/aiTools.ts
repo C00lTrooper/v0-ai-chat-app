@@ -8,24 +8,7 @@ import {
   normalizeProjectWbsOrders,
   remapConvexTasksForWbsChange,
 } from "./wbsPersistence";
-
-async function authenticateUser(
-  ctx: MutationCtx,
-  token: string,
-): Promise<Doc<"users">> {
-  const session = await ctx.db
-    .query("sessions")
-    .withIndex("by_token", (q) => q.eq("token", token))
-    .unique();
-
-  if (!session || session.expiresAt <= Date.now()) {
-    throw new Error("Unauthenticated");
-  }
-
-  const user = await ctx.db.get(session.userId);
-  if (!user) throw new Error("User not found");
-  return user;
-}
+import { requireUserDoc } from "./lib/requireUser";
 
 async function assertProjectAccess(
   ctx: MutationCtx,
@@ -143,7 +126,6 @@ async function saveProjectWithNormalizedWbs(
 
 export const createTask = mutation({
   args: {
-    token: v.string(),
     projectId: v.id("projects"),
     phaseOrder: v.optional(v.number()),
     title: v.string(),
@@ -153,7 +135,7 @@ export const createTask = mutation({
     parentTaskId: v.optional(v.id("tasks")),
   },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     const project = await assertProjectAccess(ctx, user._id, args.projectId);
 
     const previousDataJson = project.data;
@@ -231,14 +213,13 @@ export const createTask = mutation({
 
 export const updateTaskStatus = mutation({
   args: {
-    token: v.string(),
     projectId: v.id("projects"),
     phaseOrder: v.number(),
     taskOrder: v.number(),
     completed: v.boolean(),
   },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     const project = await assertProjectAccess(ctx, user._id, args.projectId);
 
     const previousDataJson = project.data;
@@ -261,7 +242,6 @@ export const updateTaskStatus = mutation({
 
 export const relocateProjectWbsTask = mutation({
   args: {
-    token: v.string(),
     projectId: v.id("projects"),
     fromPhaseOrder: v.number(),
     taskOrder: v.number(),
@@ -283,7 +263,7 @@ export const relocateProjectWbsTask = mutation({
     newDate: v.string(),
   }),
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     const project = await assertProjectAccess(ctx, user._id, args.projectId);
 
     const previousDataJson = project.data;
@@ -366,7 +346,6 @@ export const relocateProjectWbsTask = mutation({
 
 export const updateTaskDueDate = mutation({
   args: {
-    token: v.string(),
     projectId: v.id("projects"),
     phaseOrder: v.number(),
     taskOrder: v.number(),
@@ -375,7 +354,7 @@ export const updateTaskDueDate = mutation({
     newEndTime: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     const project = await assertProjectAccess(ctx, user._id, args.projectId);
 
     const previousDataJson = project.data;
@@ -407,7 +386,6 @@ export const updateTaskDueDate = mutation({
 
 export const updateTaskTime = mutation({
   args: {
-    token: v.string(),
     projectId: v.id("projects"),
     phaseOrder: v.number(),
     taskOrder: v.number(),
@@ -415,7 +393,7 @@ export const updateTaskTime = mutation({
     newEndTime: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     const project = await assertProjectAccess(ctx, user._id, args.projectId);
 
     const previousDataJson = project.data;
@@ -449,14 +427,13 @@ export const updateTaskTime = mutation({
 
 export const deleteProjectWbsTask = mutation({
   args: {
-    token: v.string(),
     projectId: v.id("projects"),
     phaseOrder: v.number(),
     taskOrder: v.number(),
   },
   returns: v.object({ ok: v.literal(true) }),
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     const project = await assertProjectAccess(ctx, user._id, args.projectId);
     if (project.ownerId !== user._id) {
       throw new Error("Only the project owner can delete tasks");
@@ -514,14 +491,13 @@ export const deleteProjectWbsTask = mutation({
 
 export const createCalendarEvent = mutation({
   args: {
-    token: v.string(),
     title: v.string(),
     startDate: v.string(),
     endDate: v.string(),
     projectId: v.optional(v.id("projects")),
   },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
 
     if (args.projectId) {
       await assertProjectAccess(ctx, user._id, args.projectId);
@@ -542,13 +518,12 @@ export const createCalendarEvent = mutation({
 
 export const moveCalendarEvent = mutation({
   args: {
-    token: v.string(),
     eventId: v.id("calendarEvents"),
     newStartDate: v.string(),
     newEndDate: v.string(),
   },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
 
     const event = await ctx.db.get(args.eventId);
     if (!event) throw new Error("Event not found");

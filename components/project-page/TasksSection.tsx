@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { useQuery } from "convex/react";
+import { useConvex, useQuery } from "convex/react";
+import { useConvexReady } from "@/hooks/use-convex-ready";
 import {
   CheckSquare,
   Layers,
@@ -60,14 +61,12 @@ import {
 } from "@/components/schedule-time-selects";
 import { TaskDetailDialog } from "@/components/calendar/task-detail-dialog";
 import { cn } from "@/lib/utils";
-import { useAuth } from "@/components/auth-provider";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { dateKey, type CalendarEvent } from "@/lib/calendar-utils";
 import type { Project } from "@/lib/project-schema";
 import type { ProjectData } from "@/components/project-page/types";
 import { UNASSIGNED_PHASE_ORDER } from "@/lib/task-phase-date";
-import { convexClient } from "@/lib/convex";
 import { projectPrimaryButtonClassName } from "@/lib/project-primary-button";
 
 function buildCalendarEventForTask(
@@ -160,7 +159,8 @@ export function TasksSection({
   project,
   onTaskCompleted,
 }: TasksSectionProps) {
-  const { sessionToken } = useAuth();
+  const convex = useConvex();
+  const ready = useConvexReady();
 
   let parsedProject: Project | null = null;
   try {
@@ -189,8 +189,8 @@ export function TasksSection({
 
   const projectSubtasks = useQuery(
     api.tasks.listSubtasksForProject,
-    sessionToken
-      ? { token: sessionToken, projectId: project._id as Id<"projects"> }
+    ready
+      ? { projectId: project._id as Id<"projects"> }
       : "skip",
   );
 
@@ -291,7 +291,7 @@ export function TasksSection({
   };
 
   const handleCreateTask = async () => {
-    if (!sessionToken || !convexClient || !parsedProject || !newTaskDialogOpen) {
+    if (!ready || !convex || !parsedProject || !newTaskDialogOpen) {
       return;
     }
     const name = newTaskName.trim();
@@ -343,8 +343,7 @@ export function TasksSection({
             };
 
       const dataStr = JSON.stringify(updated);
-      await convexClient.mutation(api.projects.update, {
-        token: sessionToken,
+      await convex.mutation(api.projects.update, {
         projectId: project._id as Id<"projects">,
         data: dataStr,
       });

@@ -1,37 +1,16 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import type { QueryCtx, MutationCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
-
-async function authenticateUser(
-  ctx: QueryCtx | MutationCtx,
-  token: string,
-): Promise<Doc<"users">> {
-  const session = await ctx.db
-    .query("sessions")
-    .withIndex("by_token", (q) => q.eq("token", token))
-    .unique();
-
-  if (!session || session.expiresAt <= Date.now()) {
-    throw new Error("Unauthenticated");
-  }
-
-  const user = await ctx.db.get(session.userId);
-  if (!user) {
-    throw new Error("User not found");
-  }
-
-  return user;
-}
+import { requireUserDoc } from "./lib/requireUser";
 
 // ---------------------------------------------------------------------------
 // Category queries & mutations
 // ---------------------------------------------------------------------------
 
 export const listCategories = query({
-  args: { token: v.string() },
-  handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+  args: {},
+  handler: async (ctx) => {
+    const user = await requireUserDoc(ctx);
     return await ctx.db
       .query("budgetCategories")
       .withIndex("by_userId", (q) => q.eq("userId", user._id))
@@ -41,12 +20,11 @@ export const listCategories = query({
 
 export const createCategory = mutation({
   args: {
-    token: v.string(),
     name: v.string(),
     color: v.string(),
   },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     return await ctx.db.insert("budgetCategories", {
       userId: user._id,
       name: args.name,
@@ -61,9 +39,9 @@ export const createCategory = mutation({
 // ---------------------------------------------------------------------------
 
 export const listTransactionsByProject = query({
-  args: { token: v.string(), projectId: v.id("projects") },
+  args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
 
     const transactions = await ctx.db
       .query("transactions")
@@ -88,9 +66,9 @@ export const listTransactionsByProject = query({
 });
 
 export const listTransactions = query({
-  args: { token: v.string() },
-  handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+  args: {},
+  handler: async (ctx) => {
+    const user = await requireUserDoc(ctx);
     const transactions = await ctx.db
       .query("transactions")
       .withIndex("by_userId", (q) => q.eq("userId", user._id))
@@ -124,7 +102,6 @@ export const listTransactions = query({
 
 export const createTransaction = mutation({
   args: {
-    token: v.string(),
     title: v.string(),
     amount: v.number(),
     type: v.union(v.literal("income"), v.literal("expense")),
@@ -133,7 +110,7 @@ export const createTransaction = mutation({
     date: v.number(),
   },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
 
     const category = await ctx.db.get(args.categoryId);
     if (!category || category.userId !== user._id) {
@@ -162,7 +139,6 @@ export const createTransaction = mutation({
 
 export const updateTransaction = mutation({
   args: {
-    token: v.string(),
     id: v.id("transactions"),
     title: v.string(),
     amount: v.number(),
@@ -172,7 +148,7 @@ export const updateTransaction = mutation({
     date: v.number(),
   },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
 
     const existing = await ctx.db.get(args.id);
     if (!existing || existing.userId !== user._id) {
@@ -204,11 +180,10 @@ export const updateTransaction = mutation({
 
 export const deleteTransaction = mutation({
   args: {
-    token: v.string(),
     id: v.id("transactions"),
   },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
 
     const existing = await ctx.db.get(args.id);
     if (!existing || existing.userId !== user._id) {

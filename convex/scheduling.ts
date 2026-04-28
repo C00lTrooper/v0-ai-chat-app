@@ -1,9 +1,9 @@
-import { action, internalMutation, mutation } from "./_generated/server";
+import { mutation } from "./_generated/server";
 import { v } from "convex/values";
 import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { internal } from "./_generated/api";
 import type { Project } from "../lib/project-schema";
+import { requireUserDoc } from "./lib/requireUser";
 import {
   normalizeProjectWbsOrders,
   remapConvexTasksForWbsChange,
@@ -68,26 +68,6 @@ const WORK_START = 9 * 60; // 9:00
 const WORK_END = 18 * 60; // 6:00 PM
 const MAX_MINUTES_PER_DAY = 8 * 60;
 const MIN_TASK_MINUTES = 15;
-
-async function authenticateUser(
-  ctx: MutationCtx,
-  token: string,
-): Promise<Doc<"users">> {
-  const session = await ctx.db
-    .query("sessions")
-    .withIndex("by_token", (q) => q.eq("token", token))
-    .unique();
-
-  if (!session || session.expiresAt <= Date.now()) {
-    throw new Error("Unauthenticated");
-  }
-
-  const user = await ctx.db.get(session.userId);
-  if (!user) {
-    throw new Error("User not found");
-  }
-  return user;
-}
 
 async function assertProjectAccess(
   ctx: MutationCtx,
@@ -785,9 +765,8 @@ function schedulePhaseTasks(
   };
 }
 
-export const runSchedulingEngineInternal = internalMutation({
+export const runSchedulingEngine = mutation({
   args: {
-    token: v.string(),
     phaseId: v.string(),
   },
   returns: v.object({
@@ -812,7 +791,7 @@ export const runSchedulingEngineInternal = internalMutation({
     ),
   }),
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     const { projectId, phaseOrder } = parsePhaseId(args.phaseId);
     const project = await assertProjectAccess(ctx, user._id, projectId);
 
@@ -824,7 +803,7 @@ export const runSchedulingEngineInternal = internalMutation({
     }
 
     // Deduplicate very recent runs to avoid double-scheduling when the UI also
-    // triggers the engine for the same phase via the public action.
+    // triggers the engine for the same phase via a second client call.
     const recentSnapshot = await ctx.db
       .query("schedulingSnapshots")
       .withIndex("by_project_phase_user", (q) =>
@@ -889,133 +868,6 @@ export const runSchedulingEngineInternal = internalMutation({
   },
 });
 
-type RunSchedulingResult = {
-  tier: ConflictTier;
-  phaseId: string;
-  snapshotId: Id<"schedulingSnapshots">;
-  changes: TaskChange[];
-};
-
-export const runSchedulingEngine = action({
-  args: {
-    token: v.string(),
-    phaseId: v.string(),
-  },
-  returns: v.object({
-    tier: v.union(v.literal("silent"), v.literal("toast"), v.literal("review")),
-    phaseId: v.string(),
-    snapshotId: v.id("schedulingSnapshots"),
-    changes: v.array(
-      v.object({
-        taskOrder: v.number(),
-        name: v.string(),
-        anchored: v.boolean(),
-        originalDate: v.string(),
-        originalTime: v.string(),
-        originalEndTime: v.optional(v.string()),
-        newDate: v.optional(v.string()),
-        newTime: v.optional(v.string()),
-        newEndTime: v.optional(v.string()),
-        movedDays: v.optional(v.number()),
-        unschedulable: v.optional(v.boolean()),
-        reason: v.optional(v.string()),
-      }),
-    ),
-  }),
-  handler: async (ctx, args): Promise<RunSchedulingResult> => {
-    return await ctx.runMutation(
-      internal.scheduling.runSchedulingEngineInternal,
-      args,
-    );
-  },
-});
-
-export const undoLastSchedulingRun = internalMutation({
-  args: {
-    token: v.string(),
-    phaseId: v.string(),
-  },
-  returns: v.boolean(),
-  handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
-    const { projectId, phaseOrder } = parsePhaseId(args.phaseId);
-    await assertProjectAccess(ctx, user._id, projectId);
-
-    const now = Date.now();
-    const snapshots = await ctx.db
-      .query("schedulingSnapshots")
-      .withIndex("by_project_phase_user", (q) =>
-        q
-          .eq("projectId", projectId)
-          .eq("phaseOrder", phaseOrder)
-          .eq("userId", user._id),
-      )
-      .order("desc")
-      .take(5);
-
-    const recent = snapshots.find(
-      (s) => now - s.createdAt <= 24 * 60 * 60 * 1000,
-    );
-    if (!recent) {
-      return false;
-    }
-
-    const project = await ctx.db.get(projectId);
-    if (!project) {
-      throw new Error("Project not found");
-    }
-
-    const previousDataJson = project.data;
-    const parsed = parseProjectData(project.data);
-    const phase = parsed.project_wbs.find((p) => p.order === phaseOrder);
-    if (!phase) {
-      throw new Error("Phase not found");
-    }
-
-    const consumed = new Set<number>();
-    phase.tasks = phase.tasks.map((t) => {
-      const i = recent.snapshot.findIndex((s, idx) => {
-        if (consumed.has(idx)) return false;
-        if (s.taskName != null && s.taskName.length > 0) {
-          return s.taskName === t.name;
-        }
-        return s.taskOrder === t.order;
-      });
-      if (i < 0) return t;
-      consumed.add(i);
-      const snap = recent.snapshot[i];
-      return {
-        ...t,
-        date: snap.date,
-        time: snap.time,
-        endTime: snap.endTime,
-      };
-    });
-
-    parsed.project_wbs = parsed.project_wbs.map((p) =>
-      p.order === phaseOrder ? phase : p,
-    );
-
-    const normalizedUndo = normalizeProjectWbsOrders(parsed as Project);
-    await remapConvexTasksForWbsChange(
-      ctx,
-      projectId,
-      previousDataJson,
-      normalizedUndo,
-    );
-
-    await ctx.db.patch(projectId, {
-      data: JSON.stringify(normalizedUndo),
-      updatedAt: Date.now(),
-    });
-
-    // Optionally delete the snapshot after use
-    await ctx.db.delete(recent._id);
-
-    return true;
-  },
-});
-
 // ---------------------------------------------------------------------------
 // Project-level deferred recalculation (runs the engine for every phase)
 // ---------------------------------------------------------------------------
@@ -1024,9 +876,8 @@ function makeRunId(): string {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-export const runProjectSchedulingEngineInternal = internalMutation({
+export const runProjectSchedulingEngine = mutation({
   args: {
-    token: v.string(),
     projectId: v.id("projects"),
   },
   returns: v.object({
@@ -1034,7 +885,7 @@ export const runProjectSchedulingEngineInternal = internalMutation({
     phasesProcessed: v.number(),
   }),
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     await assertProjectAccess(ctx, user._id, args.projectId);
 
     const project = await ctx.db.get(args.projectId);
@@ -1103,34 +954,13 @@ export const runProjectSchedulingEngineInternal = internalMutation({
   },
 });
 
-export const runProjectSchedulingEngine = action({
+export const undoLastProjectSchedulingRun = mutation({
   args: {
-    token: v.string(),
-    projectId: v.id("projects"),
-  },
-  returns: v.object({
-    runId: v.string(),
-    phasesProcessed: v.number(),
-  }),
-  handler: async (
-    ctx,
-    args,
-  ): Promise<{ runId: string; phasesProcessed: number }> => {
-    return await ctx.runMutation(
-      internal.scheduling.runProjectSchedulingEngineInternal,
-      args,
-    );
-  },
-});
-
-export const undoLastProjectSchedulingRunInternal = internalMutation({
-  args: {
-    token: v.string(),
     projectId: v.id("projects"),
   },
   returns: v.boolean(),
-  handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+  handler: async (ctx, args): Promise<boolean> => {
+    const user = await requireUserDoc(ctx);
     await assertProjectAccess(ctx, user._id, args.projectId);
 
     const latest = await ctx.db
@@ -1201,20 +1031,6 @@ export const undoLastProjectSchedulingRunInternal = internalMutation({
     }
 
     return true;
-  },
-});
-
-export const undoLastProjectSchedulingRun = mutation({
-  args: {
-    token: v.string(),
-    projectId: v.id("projects"),
-  },
-  returns: v.boolean(),
-  handler: async (ctx, args): Promise<boolean> => {
-    return await ctx.runMutation(
-      internal.scheduling.undoLastProjectSchedulingRunInternal,
-      args,
-    );
   },
 });
 

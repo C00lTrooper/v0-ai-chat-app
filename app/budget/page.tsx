@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import { useQuery, useMutation } from "convex/react";
+import { useQuery, useMutation, useConvexAuth } from "convex/react";
+import { useRedirectIfSignedOut } from "@/hooks/use-redirect-if-signed-out";
+import { ConvexSessionShell } from "@/components/convex-session-shell";
 import { format, endOfMonth, startOfMonth } from "date-fns";
 import {
   PieChart,
@@ -41,7 +42,6 @@ import {
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { useAuth } from "@/components/auth-provider";
 import { ChatHeader } from "@/components/chat-header";
 
 import { Button } from "@/components/ui/button";
@@ -161,37 +161,35 @@ type TimeChartView = (typeof TIME_CHART_VIEWS)[number]["key"];
 // ---------------------------------------------------------------------------
 
 export default function BudgetPage() {
-  const router = useRouter();
-  const { isAuthenticated, sessionToken } = useAuth();
-
-  useEffect(() => {
-    if (!isAuthenticated) {
-      router.replace("/login");
-    }
-  }, [isAuthenticated, router]);
-
-  if (!isAuthenticated || !sessionToken) {
-    return null;
-  }
+  useRedirectIfSignedOut();
 
   return (
-    <div className="flex h-dvh flex-col bg-background">
-      <ChatHeader hasMessages={false} onClear={() => {}} />
-      <div className="flex-1 overflow-y-auto pt-14">
-        <BudgetContent token={sessionToken} />
+    <ConvexSessionShell>
+      <div className="flex h-dvh flex-col bg-background">
+        <ChatHeader hasMessages={false} onClear={() => {}} />
+        <div className="flex-1 overflow-y-auto pt-14">
+          <BudgetContent />
+        </div>
       </div>
-    </div>
+    </ConvexSessionShell>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Main content (requires token)
+// Main content
 // ---------------------------------------------------------------------------
 
-function BudgetContent({ token }: { token: string }) {
-  const transactions = useQuery(api.budget.listTransactions, { token });
-  const categories = useQuery(api.budget.listCategories, { token });
-  const projects = useQuery(api.projects.list, { token });
+function BudgetContent() {
+  const { isAuthenticated } = useConvexAuth();
+  const transactions = useQuery(
+    api.budget.listTransactions,
+    isAuthenticated ? {} : "skip",
+  );
+  const categories = useQuery(
+    api.budget.listCategories,
+    isAuthenticated ? {} : "skip",
+  );
+  const projects = useQuery(api.projects.list, isAuthenticated ? {} : "skip");
 
   const createTransaction = useMutation(api.budget.createTransaction);
   const updateTransaction = useMutation(api.budget.updateTransaction);
@@ -506,7 +504,6 @@ function BudgetContent({ token }: { token: string }) {
 
     if (form.categoryId === "__new__" && form.newCategoryName.trim()) {
       categoryId = await createCategory({
-        token,
         name: form.newCategoryName.trim(),
         color: form.newCategoryColor,
       });
@@ -515,7 +512,6 @@ function BudgetContent({ token }: { token: string }) {
     if (!categoryId) return;
 
     const payload = {
-      token,
       title: form.title,
       amount: parseFloat(form.amount),
       type: form.type,
@@ -538,7 +534,7 @@ function BudgetContent({ token }: { token: string }) {
   }
 
   async function handleDelete(id: Id<"transactions">) {
-    await deleteTransaction({ token, id });
+    await deleteTransaction({ id });
   }
 
   const isLoading = transactions === undefined || categories === undefined;

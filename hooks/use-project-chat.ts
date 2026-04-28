@@ -1,10 +1,8 @@
 "use client"
 
 import { useState, useCallback, useRef, useMemo, useEffect } from "react"
-import { useQuery, useMutation } from "convex/react"
+import { useQuery, useMutation, useConvexAuth, useConvex } from "convex/react"
 import { api } from "@/convex/_generated/api"
-import { useAuth } from "@/components/auth-provider"
-import { convexClient } from "@/lib/convex"
 import type { Id } from "@/convex/_generated/dataModel"
 import type { AiContext, ToolCallWithStatus, LinkedEntity, ConflictWarning } from "@/lib/ai-tools"
 import { buildToolConfirmationText, READ_ONLY_TOOLS } from "@/lib/ai-tools"
@@ -62,15 +60,15 @@ export function useProjectChat({
   aiContext?: AiContext | null
   currentProjectId?: string | null
 }) {
-  const { sessionToken } = useAuth()
+  const { isLoading: authLoading, isAuthenticated } = useConvexAuth()
+  const ready = !authLoading && isAuthenticated
+  const convex = useConvex()
 
   const UNASSIGNED_CHAT_STORAGE_KEY = "unassignedChatMessages"
 
   const chatData = useQuery(
     api.chats.getChatWithMessages,
-    activeChatId && sessionToken
-      ? { token: sessionToken, chatId: activeChatId }
-      : "skip",
+    activeChatId && ready ? { chatId: activeChatId } : "skip",
   )
 
   const sendMessageMutation = useMutation(api.chats.sendMessage)
@@ -255,11 +253,9 @@ export function useProjectChat({
   async function executeReadOnlyTool(
     name: string,
     args: Record<string, unknown>,
-    token: string,
   ): Promise<unknown> {
-    if (name === "checkTimeConflicts" && convexClient) {
-      return await convexClient.query(api.conflicts.checkTimeConflicts, {
-        token,
+    if (name === "checkTimeConflicts") {
+      return await convex.query(api.conflicts.checkTimeConflicts, {
         date: args.date as string,
         startTime: args.startTime as string,
         endTime: (args.endTime as string) || undefined,
@@ -272,9 +268,7 @@ export function useProjectChat({
 
   async function runConflictCheck(
     args: Record<string, unknown>,
-    token: string,
   ): Promise<ConflictWarning | undefined> {
-    if (!convexClient) return undefined
     const date = (args.dueDate ?? args.newDate ?? args.startDate ?? args.newStartDate) as string | undefined
     const startTime = (args.time ?? args.newStartTime ?? args.startTime) as string | undefined
     if (!date || !startTime) return undefined
@@ -286,8 +280,7 @@ export function useProjectChat({
     const excludeEventId = args.eventId as string | undefined
 
     try {
-      const result = await convexClient.query(api.conflicts.checkTimeConflicts, {
-        token,
+      const result = await convex.query(api.conflicts.checkTimeConflicts, {
         date,
         startTime,
         endTime: endTime || undefined,
@@ -310,7 +303,7 @@ export function useProjectChat({
 
   const confirmToolCall = useCallback(
     async (_messageId: string, toolCallId: string) => {
-      if (!sessionToken || !pendingToolCalls) return
+      if (!ready || !pendingToolCalls) return
 
       const tc = pendingToolCalls.find((t) => t.toolCall.id === toolCallId)
       if (!tc || tc.status !== "pending") return
@@ -323,7 +316,6 @@ export function useProjectChat({
         switch (tc.toolCall.name) {
           case "createTask": {
             const result = await createTaskMutation({
-              token: sessionToken,
               projectId: args.projectId as Id<"projects">,
               ...(typeof args.phaseOrder === "number"
                 ? { phaseOrder: args.phaseOrder }
@@ -347,7 +339,6 @@ export function useProjectChat({
           }
           case "updateTaskStatus": {
             const result = await updateTaskStatusMutation({
-              token: sessionToken,
               projectId: args.projectId as Id<"projects">,
               phaseOrder: args.phaseOrder as number,
               taskOrder: args.taskOrder as number,
@@ -364,7 +355,6 @@ export function useProjectChat({
           }
           case "updateTaskDueDate": {
             const result = await updateTaskDueDateMutation({
-              token: sessionToken,
               projectId: args.projectId as Id<"projects">,
               phaseOrder: args.phaseOrder as number,
               taskOrder: args.taskOrder as number,
@@ -388,7 +378,6 @@ export function useProjectChat({
           }
           case "updateTaskTime": {
             const result = await updateTaskTimeMutation({
-              token: sessionToken,
               projectId: args.projectId as Id<"projects">,
               phaseOrder: args.phaseOrder as number,
               taskOrder: args.taskOrder as number,
@@ -409,7 +398,6 @@ export function useProjectChat({
           }
           case "createCalendarEvent": {
             const result = await createCalendarEventMutation({
-              token: sessionToken,
               title: args.title as string,
               startDate: args.startDate as string,
               endDate: args.endDate as string,
@@ -428,7 +416,6 @@ export function useProjectChat({
           }
           case "moveCalendarEvent": {
             const result = await moveCalendarEventMutation({
-              token: sessionToken,
               eventId: args.eventId as Id<"calendarEvents">,
               newStartDate: args.newStartDate as string,
               newEndDate: args.newEndDate as string,
@@ -454,9 +441,8 @@ export function useProjectChat({
         )
 
         const chatId = activeChatIdRef.current
-        if (chatId && sessionToken) {
+        if (chatId && ready) {
           await sendMessageMutation({
-            token: sessionToken,
             chatId,
             role: "assistant",
             content: `✅ ${resultMessage}`,
@@ -474,7 +460,7 @@ export function useProjectChat({
       }
     },
     [
-      sessionToken,
+      ready,
       pendingToolCalls,
       createTaskMutation,
       updateTaskStatusMutation,
@@ -518,7 +504,7 @@ export function useProjectChat({
 
   const sendMessage = useCallback(
     async (content: string) => {
-      if (!sessionToken) return
+      if (!ready) return
 
       const wasEmptyChat =
         activeChatId && (chatData?.messages.length ?? 0) === 0
@@ -535,7 +521,6 @@ export function useProjectChat({
 
       if (!effectiveChatId && projectToLink) {
         const { chatId } = await createChatMutation({
-          token: sessionToken,
           projectId: projectToLink,
         })
         effectiveChatId = chatId
@@ -543,7 +528,6 @@ export function useProjectChat({
 
       if (effectiveChatId) {
         await sendMessageMutation({
-          token: sessionToken,
           chatId: effectiveChatId,
           role: "user",
           content,
@@ -637,7 +621,7 @@ export function useProjectChat({
           const readOnlyTCs = toolCalls.filter((tc) => tc.name && isReadOnlyTool(tc.name))
           const writeTCs = toolCalls.filter((tc) => tc.name && !isReadOnlyTool(tc.name))
 
-          if (readOnlyTCs.length > 0 && writeTCs.length === 0 && sessionToken) {
+          if (readOnlyTCs.length > 0 && writeTCs.length === 0 && ready) {
             const assistantMsg: ApiMsg = {
               role: "assistant",
               content: fullContent || null,
@@ -651,7 +635,7 @@ export function useProjectChat({
             for (const tc of readOnlyTCs) {
               let parsedArgs: Record<string, unknown> = {}
               try { parsedArgs = JSON.parse(tc.arguments) } catch { /* skip */ }
-              const result = await executeReadOnlyTool(tc.name, parsedArgs, sessionToken)
+              const result = await executeReadOnlyTool(tc.name, parsedArgs)
               toolResultMsgs.push({
                 role: "tool",
                 tool_call_id: tc.id || "",
@@ -720,7 +704,10 @@ export function useProjectChat({
                         ? Math.min(Math.max(s.minutes, MIN_CHUNK_MINUTES), MAX_CHUNK_MINUTES)
                         : 60,
                   }))
-                  .filter((s) => s.title.length > 0)
+                  .filter(
+                    (s: { title: string; minutes: number }) =>
+                      s.title.length > 0,
+                  )
               }
             } catch {
               // fall through to time-based split
@@ -788,7 +775,7 @@ export function useProjectChat({
             }
           }
 
-          if (expandedToolCalls.length > 0 && sessionToken && convexClient) {
+          if (expandedToolCalls.length > 0 && ready) {
             // Proactively snap created tasks to the nearest free slot using conflict suggestions
             for (const tc of expandedToolCalls) {
               if (tc.toolCall.name !== "createTask") continue
@@ -798,8 +785,7 @@ export function useProjectChat({
               const endTime = (args.endTime as string | undefined) || undefined
               if (!date || !time) continue
               try {
-                const result = await convexClient.query(api.conflicts.checkTimeConflicts, {
-                  token: sessionToken,
+                const result = await convex.query(api.conflicts.checkTimeConflicts, {
                   date,
                   startTime: time,
                   endTime,
@@ -818,7 +804,7 @@ export function useProjectChat({
             }
           }
 
-          if (expandedToolCalls.length > 0 && sessionToken) {
+          if (expandedToolCalls.length > 0 && ready) {
             for (const tc of expandedToolCalls) {
               const schedulingTools = [
                 "createTask",
@@ -828,7 +814,7 @@ export function useProjectChat({
                 "moveCalendarEvent",
               ]
               if (schedulingTools.includes(tc.toolCall.name)) {
-                tc.conflictWarning = await runConflictCheck(tc.toolCall.arguments, sessionToken)
+                tc.conflictWarning = await runConflictCheck(tc.toolCall.arguments)
               }
             }
           }
@@ -848,7 +834,6 @@ export function useProjectChat({
 
         if (effectiveChatId) {
           await sendMessageMutation({
-            token: sessionToken,
             chatId: effectiveChatId,
             role: "assistant",
             content: finalContent,
@@ -870,7 +855,6 @@ export function useProjectChat({
                 const { title } = (await titleRes.json()) as { title?: string }
                 if (title?.trim()) {
                   await renameChatMutation({
-                    token: sessionToken,
                     chatId: effectiveChatId,
                     name: title.trim().slice(0, 80),
                   })
@@ -912,7 +896,8 @@ export function useProjectChat({
     [
       activeChatId,
       projectToLink,
-      sessionToken,
+      ready,
+      convex,
       chatData,
       localMessages,
       sendMessageMutation,

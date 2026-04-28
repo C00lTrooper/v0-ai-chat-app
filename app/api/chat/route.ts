@@ -241,8 +241,22 @@ ${eventLines.length > 0 ? eventLines.join("\n") : "  (no calendar events yet)"}
 
 const CHAT_MODEL = "google/gemini-3-flash-preview";
 
+const isDev = process.env.NODE_ENV === "development";
+
 export async function POST(request: Request) {
-  const { messages, context } = await request.json();
+  let bodyUnknown: unknown;
+  try {
+    bodyUnknown = await request.json();
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const parsed = bodyUnknown as { messages?: unknown; context?: unknown };
+  const messages = parsed.messages;
+  const context = parsed.context;
 
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
@@ -290,7 +304,7 @@ export async function POST(request: Request) {
       return new Response(
         JSON.stringify({
           error: `OpenRouter API error: ${response.status}`,
-          details: errorText,
+          ...(isDev ? { details: errorText } : {}),
         }),
         {
           status: response.status,
@@ -307,11 +321,11 @@ export async function POST(request: Request) {
       },
     });
   } catch (error) {
-    const details = error instanceof Error ? error.message : String(error);
+    const msg = error instanceof Error ? error.message : String(error);
     return new Response(
       JSON.stringify({
         error: "Failed to connect to OpenRouter",
-        details: details || undefined,
+        ...(isDev ? { details: msg || undefined } : {}),
       }),
       { status: 500, headers: { "Content-Type": "application/json" } },
     );

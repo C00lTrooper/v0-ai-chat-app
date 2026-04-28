@@ -1,33 +1,13 @@
 import { mutation } from "./_generated/server";
 import { v } from "convex/values";
 import type { MutationCtx } from "./_generated/server";
-import type { Doc, Id } from "./_generated/dataModel";
+import type { Id } from "./_generated/dataModel";
 import type { Project } from "../lib/project-schema";
 import {
   normalizeProjectWbsOrders,
   remapConvexTasksForWbsChange,
 } from "./wbsPersistence";
-
-async function authenticateUser(
-  ctx: MutationCtx,
-  token: string,
-): Promise<Doc<"users">> {
-  const session = await ctx.db
-    .query("sessions")
-    .withIndex("by_token", (q) => q.eq("token", token))
-    .unique();
-
-  if (!session || session.expiresAt <= Date.now()) {
-    throw new Error("Unauthenticated");
-  }
-
-  const user = await ctx.db.get(session.userId);
-  if (!user) {
-    throw new Error("User not found");
-  }
-
-  return user;
-}
+import { requireUserDoc } from "./lib/requireUser";
 
 function taskKey(name: string, date: string, time: string): string {
   return `${name.trim()}|${date.trim()}|${time.trim()}`;
@@ -94,7 +74,6 @@ function resolveLinks(
 
 export const commitIncrementalGeneration = mutation({
   args: {
-    token: v.string(),
     projectId: v.id("projects"),
     newPhases: v.array(
       v.object({
@@ -166,7 +145,7 @@ export const commitIncrementalGeneration = mutation({
     phaseOrdersWithNewTasks: v.array(v.number()),
   }),
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     const project = await ctx.db.get(args.projectId);
     if (!project || project.ownerId !== user._id) {
       throw new Error("Not found or not authorized");

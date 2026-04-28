@@ -2,6 +2,7 @@ import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import { requireUserDoc } from "./lib/requireUser";
 
 function parseTimeToMinutes(time: string): number {
   const t = time.trim().toUpperCase();
@@ -54,22 +55,6 @@ interface SuggestedSlot {
   date: string;
   startTime: string;
   endTime: string;
-}
-
-async function authenticateUser(
-  ctx: QueryCtx | MutationCtx,
-  token: string,
-): Promise<Doc<"users">> {
-  const session = await ctx.db
-    .query("sessions")
-    .withIndex("by_token", (q) => q.eq("token", token))
-    .unique();
-  if (!session || session.expiresAt <= Date.now()) {
-    throw new Error("Unauthenticated");
-  }
-  const user = await ctx.db.get(session.userId);
-  if (!user) throw new Error("User not found");
-  return user;
 }
 
 async function getAccessibleProjects(
@@ -167,7 +152,6 @@ function findFreeSlots(
 
 export const checkTimeConflicts = query({
   args: {
-    token: v.string(),
     date: v.string(),
     startTime: v.string(),
     endTime: v.optional(v.string()),
@@ -175,7 +159,7 @@ export const checkTimeConflicts = query({
     excludeEventId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     const projects = await getAccessibleProjects(ctx, user._id);
     const allSlots = gatherTaskSlots(projects);
 
@@ -277,11 +261,10 @@ export const checkTimeConflicts = query({
 
 export const setDailyTaskLimit = mutation({
   args: {
-    token: v.string(),
     limit: v.union(v.number(), v.null()),
   },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     await ctx.db.patch(user._id, {
       dailyTaskLimit: args.limit ?? undefined,
     });

@@ -13,11 +13,10 @@ import {
   SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet";
-import { useAuth } from "@/components/auth-provider";
-import { convexClient } from "@/lib/convex";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { useQuery } from "convex/react";
+import { useConvex, useQuery } from "convex/react";
+import { useConvexReady } from "@/hooks/use-convex-ready";
 import { toast } from "@/hooks/use-toast";
 import { Spinner } from "@/components/ui/spinner";
 import {
@@ -105,7 +104,8 @@ export interface TimelineSectionProps {
 }
 
 export function TimelineSection({ project }: TimelineSectionProps) {
-  const { sessionToken } = useAuth();
+  const convex = useConvex();
+  const ready = useConvexReady();
   const [zoom, setZoom] = useState<ZoomLevel>("week");
   const [selectedPhase, setSelectedPhase] = useState<PhaseWithLayout | null>(
     null,
@@ -122,8 +122,8 @@ export function TimelineSection({ project }: TimelineSectionProps) {
 
   const needsReschedule = useQuery(
     api.projects.getNeedsReschedule,
-    sessionToken
-      ? { token: sessionToken, projectId: project._id as Id<"projects"> }
+    ready
+      ? { projectId: project._id as Id<"projects"> }
       : "skip",
   );
 
@@ -157,16 +157,15 @@ export function TimelineSection({ project }: TimelineSectionProps) {
 
   useEffect(() => {
     if (!viewAll) return;
-    if (!sessionToken || !convexClient) return;
+    if (!ready || !convex) return;
 
     let cancelled = false;
     setLoadingAll(true);
 
     void (async () => {
       try {
-        const result = await convexClient.query(api.projects.listWithTasks, {
-          token: sessionToken,
-        });
+        const result = await convex.query(api.projects.listWithTasks, {
+          });
         if (cancelled) return;
 
         const mapped: PhaseWithLayout[] = [];
@@ -218,7 +217,7 @@ export function TimelineSection({ project }: TimelineSectionProps) {
     return () => {
       cancelled = true;
     };
-  }, [viewAll, sessionToken]);
+  }, [viewAll, ready]);
 
   const phases = viewAll ? (allPhases ?? []) : projectPhases;
   const editablePhases = viewAll ? phases : (optimisticPhases ?? phases);
@@ -451,7 +450,7 @@ export function TimelineSection({ project }: TimelineSectionProps) {
 
       setOptimisticPhases(laidOut);
 
-      if (!sessionToken || !convexClient) return;
+      if (!ready || !convex) return;
 
       let parsed: Project | null = null;
       try {
@@ -506,8 +505,7 @@ export function TimelineSection({ project }: TimelineSectionProps) {
       });
 
       try {
-        const result = await convexClient.mutation(api.projects.update, {
-          token: sessionToken,
+        const result = await convex.mutation(api.projects.update, {
           projectId: project._id as Id<"projects">,
           data: dataStr,
         });
@@ -535,8 +533,8 @@ export function TimelineSection({ project }: TimelineSectionProps) {
 
   const runSync = useCallback(
     async (reason: string) => {
-      const client = convexClient;
-      if (!sessionToken) return;
+      const client = convex;
+      if (!ready) return;
       if (!client) return;
       if (syncInFlightRef.current) return;
       if (!outOfSync) return;
@@ -557,8 +555,7 @@ export function TimelineSection({ project }: TimelineSectionProps) {
 
       try {
         const projectId = project._id as Id<"projects">;
-        await client.action(api.scheduling.runProjectSchedulingEngine, {
-          token: sessionToken,
+        await client.mutation(api.scheduling.runProjectSchedulingEngine, {
           projectId,
         });
 
@@ -574,7 +571,6 @@ export function TimelineSection({ project }: TimelineSectionProps) {
                   await client.mutation(
                     api.scheduling.undoLastProjectSchedulingRun,
                     {
-                      token: sessionToken,
                       projectId,
                     },
                   );
@@ -602,7 +598,7 @@ export function TimelineSection({ project }: TimelineSectionProps) {
         pendingSyncRef.current = false;
       }
     },
-    [sessionToken, outOfSync, viewAll, dragState, project._id],
+    [ready, outOfSync, viewAll, dragState, project._id],
   );
 
   // If we got a request during drag, run right after the user releases.
@@ -614,7 +610,7 @@ export function TimelineSection({ project }: TimelineSectionProps) {
 
   // Idle / visibility triggers for deferred recalculation.
   useEffect(() => {
-    if (!sessionToken) return;
+    if (!ready) return;
     if (viewAll) return;
 
     const touchActivity = () => {
@@ -652,7 +648,7 @@ export function TimelineSection({ project }: TimelineSectionProps) {
       document.removeEventListener("visibilitychange", handleVisibility);
       window.clearInterval(interval);
     };
-  }, [sessionToken, viewAll, runSync]);
+  }, [ready, viewAll, runSync]);
 
   // If the user navigates away from the timeline, sync once at the stable point.
   useEffect(() => {

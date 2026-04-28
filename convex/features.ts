@@ -2,27 +2,7 @@ import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-
-async function authenticateUser(
-  ctx: QueryCtx | MutationCtx,
-  token: string,
-): Promise<Doc<"users">> {
-  const session = await ctx.db
-    .query("sessions")
-    .withIndex("by_token", (q) => q.eq("token", token))
-    .unique();
-
-  if (!session || session.expiresAt <= Date.now()) {
-    throw new Error("Unauthenticated");
-  }
-
-  const user = await ctx.db.get(session.userId);
-  if (!user) {
-    throw new Error("User not found");
-  }
-
-  return user;
-}
+import { requireUserDoc } from "./lib/requireUser";
 
 async function assertCanAccessProject(
   ctx: QueryCtx | MutationCtx,
@@ -45,11 +25,10 @@ async function assertCanAccessProject(
 
 export const listByProject = query({
   args: {
-    token: v.string(),
     projectId: v.id("projects"),
   },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     await assertCanAccessProject(ctx, user._id, args.projectId);
 
     const features = await ctx.db
@@ -73,14 +52,13 @@ export const listByProject = query({
 
 export const create = mutation({
   args: {
-    token: v.string(),
     projectId: v.id("projects"),
     phaseOrder: v.number(),
     name: v.string(),
     description: v.string(),
   },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     await assertCanAccessProject(ctx, user._id, args.projectId);
 
     const existing = await ctx.db
@@ -109,13 +87,12 @@ export const create = mutation({
 
 export const update = mutation({
   args: {
-    token: v.string(),
     featureId: v.id("features"),
     name: v.string(),
     description: v.string(),
   },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     const feature = await ctx.db.get(args.featureId);
     if (!feature) {
       throw new Error("Feature not found");
@@ -134,12 +111,11 @@ export const update = mutation({
 
 export const movePhase = mutation({
   args: {
-    token: v.string(),
     featureId: v.id("features"),
     phaseOrder: v.number(),
   },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     const feature = await ctx.db.get(args.featureId);
     if (!feature) {
       throw new Error("Feature not found");
@@ -172,14 +148,13 @@ export const movePhase = mutation({
 
 export const save = mutation({
   args: {
-    token: v.string(),
     featureId: v.id("features"),
     name: v.string(),
     description: v.string(),
     phaseOrder: v.number(),
   },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     const feature = await ctx.db.get(args.featureId);
     if (!feature) {
       throw new Error("Feature not found");
@@ -213,12 +188,11 @@ export const save = mutation({
 
 export const reorder = mutation({
   args: {
-    token: v.string(),
     projectId: v.id("projects"),
     orderedIds: v.array(v.id("features")),
   },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     await assertCanAccessProject(ctx, user._id, args.projectId);
 
     let order = 0;
@@ -235,12 +209,11 @@ export const reorder = mutation({
 
 export const deleteFeature = mutation({
   args: {
-    token: v.string(),
     featureId: v.id("features"),
     mode: v.union(v.literal("delete_tasks"), v.literal("unassign_tasks")),
   },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     const feature = await ctx.db.get(args.featureId);
     if (!feature) {
       throw new Error("Feature not found");
@@ -272,14 +245,13 @@ export const deleteFeature = mutation({
 
 export const linkTaskToFeature = mutation({
   args: {
-    token: v.string(),
     projectId: v.id("projects"),
     phaseOrder: v.number(),
     taskOrder: v.number(),
     featureId: v.id("features"),
   },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     await assertCanAccessProject(ctx, user._id, args.projectId);
 
     const feature = await ctx.db.get(args.featureId);
@@ -319,13 +291,12 @@ export const linkTaskToFeature = mutation({
 
 export const unlinkTaskFromFeature = mutation({
   args: {
-    token: v.string(),
     projectId: v.id("projects"),
     phaseOrder: v.number(),
     taskOrder: v.number(),
   },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     await assertCanAccessProject(ctx, user._id, args.projectId);
 
     const existing = await ctx.db
@@ -350,11 +321,10 @@ export const unlinkTaskFromFeature = mutation({
 
 export const listTasksForProject = query({
   args: {
-    token: v.string(),
     projectId: v.id("projects"),
   },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     const project = await assertCanAccessProject(ctx, user._id, args.projectId);
 
     let phases: Array<{

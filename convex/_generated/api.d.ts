@@ -10,15 +10,16 @@
 
 import type * as aiContext from "../aiContext.js";
 import type * as aiTools from "../aiTools.js";
-import type * as auth from "../auth.js";
 import type * as budget from "../budget.js";
 import type * as chats from "../chats.js";
 import type * as conflicts from "../conflicts.js";
 import type * as features from "../features.js";
+import type * as lib_requireUser from "../lib/requireUser.js";
 import type * as projectGeneration from "../projectGeneration.js";
 import type * as projects from "../projects.js";
 import type * as scheduling from "../scheduling.js";
 import type * as tasks from "../tasks.js";
+import type * as users from "../users.js";
 import type * as wbsPersistence from "../wbsPersistence.js";
 
 import type {
@@ -30,15 +31,16 @@ import type {
 declare const fullApi: ApiFromModules<{
   aiContext: typeof aiContext;
   aiTools: typeof aiTools;
-  auth: typeof auth;
   budget: typeof budget;
   chats: typeof chats;
   conflicts: typeof conflicts;
   features: typeof features;
+  "lib/requireUser": typeof lib_requireUser;
   projectGeneration: typeof projectGeneration;
   projects: typeof projects;
   scheduling: typeof scheduling;
   tasks: typeof tasks;
+  users: typeof users;
   wbsPersistence: typeof wbsPersistence;
 }>;
 

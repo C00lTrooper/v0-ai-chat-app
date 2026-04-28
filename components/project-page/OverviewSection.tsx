@@ -29,8 +29,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { projectPrimaryButtonClassName } from "@/lib/project-primary-button";
 import { Input } from "@/components/ui/input";
-import { useAuth } from "@/components/auth-provider";
 import { api } from "@/convex/_generated/api";
+import { useConvexReady } from "@/hooks/use-convex-ready";
 import { toast } from "@/hooks/use-toast";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { Project } from "@/lib/project-schema";
@@ -63,7 +63,7 @@ export function OverviewSection({
   project,
   onTargetDateChange,
 }: OverviewSectionProps) {
-  const { sessionToken } = useAuth();
+  const ready = useConvexReady();
   const updateProject = useMutation(api.projects.update);
   const [updatingTargetDate, setUpdatingTargetDate] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(() => {
@@ -76,21 +76,20 @@ export function OverviewSection({
   const [objectiveDraft, setObjectiveDraft] = useState(project.objective);
   const [updatingObjective, setUpdatingObjective] = useState(false);
 
-  const canEditTargetDate = project.isOwner && !!sessionToken;
-  const canEditObjective = project.isOwner && !!sessionToken;
-  const canEditFeatures = project.isOwner && !!sessionToken;
+  const canEditTargetDate = project.isOwner && !!ready;
+  const canEditObjective = project.isOwner && !!ready;
+  const canEditFeatures = project.isOwner && !!ready;
   const displayTargetDate =
     selectedDate?.toLocaleDateString() || project.targetDate || "Select date";
 
   const handleSelectTargetDate = async (date: Date | undefined) => {
     if (!date || !canEditTargetDate) return;
-    if (!sessionToken) return;
+    if (!ready) return;
 
     setUpdatingTargetDate(true);
     try {
       const iso = date.toISOString().slice(0, 10);
       await updateProject({
-        token: sessionToken,
         projectId: project._id as Id<"projects">,
         targetDate: iso,
       });
@@ -175,7 +174,7 @@ export function OverviewSection({
   }, []);
 
   const persistFeatures = async (nextFeatures: Phase[]) => {
-    if (!sessionToken || updatingFeatures) return;
+    if (!ready || updatingFeatures) return;
     setUpdatingFeatures(true);
     try {
       const normalizedWbs = assignWbsOrdersFromDates(
@@ -209,7 +208,6 @@ export function OverviewSection({
       };
 
       await updateProject({
-        token: sessionToken,
         projectId: project._id as Id<"projects">,
         data: JSON.stringify(updatedProject),
       });
@@ -300,7 +298,7 @@ export function OverviewSection({
     deletePhaseIndex != null ? features[deletePhaseIndex] : null;
 
   const addFeature = async () => {
-    if (!sessionToken || updatingFeatures) return;
+    if (!ready || updatingFeatures) return;
     const today = new Date();
     const end = new Date(today);
     end.setDate(end.getDate() + 7);
@@ -419,11 +417,10 @@ export function OverviewSection({
                 <Button
                   size="sm"
                   onClick={async () => {
-                    if (!sessionToken || updatingObjective) return;
+                    if (!ready || updatingObjective) return;
                     setUpdatingObjective(true);
                     try {
                       await updateProject({
-                        token: sessionToken,
                         projectId: project._id as Id<"projects">,
                         objective: objectiveDraft,
                       });
@@ -572,7 +569,7 @@ export function OverviewSection({
                                         <Button
                                           type="button"
                                           variant="ghost"
-                                          size="xs"
+                                          size="sm"
                                           className="h-7 px-2 text-[11px]"
                                           onClick={() => {
                                             setFeatureDraftStart(
@@ -644,7 +641,7 @@ export function OverviewSection({
                                         <Button
                                           type="button"
                                           variant="ghost"
-                                          size="xs"
+                                          size="sm"
                                           className="h-7 px-2 text-[11px]"
                                           onClick={() => {
                                             setFeatureDraftEnd(
@@ -814,7 +811,7 @@ export function OverviewSection({
                                               <Button
                                                 type="button"
                                                 variant="ghost"
-                                                size="xs"
+                                                size="sm"
                                                 className="h-7 px-2 text-[11px]"
                                                 onClick={() => {
                                                   setFeatureDraftStart(
@@ -886,7 +883,7 @@ export function OverviewSection({
                                               <Button
                                                 type="button"
                                                 variant="ghost"
-                                                size="xs"
+                                                size="sm"
                                                 className="h-7 px-2 text-[11px]"
                                                 onClick={() => {
                                                   setFeatureDraftEnd(

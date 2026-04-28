@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAuth } from "@/components/auth-provider";
+import { useMutation } from "convex/react";
+import { useUser } from "@clerk/nextjs";
 import { ChatHeader } from "@/components/chat-header";
 import {
   Card,
@@ -24,25 +25,23 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { convexClient } from "@/lib/convex";
+import { useRedirectIfSignedOut } from "@/hooks/use-redirect-if-signed-out";
+import { ConvexSessionShell } from "@/components/convex-session-shell";
 import { api } from "@/convex/_generated/api";
 
 export default function AccountPage() {
   const router = useRouter();
-  const { isAuthenticated, userEmail, sessionToken, logout } = useAuth();
+  useRedirectIfSignedOut();
+  const { user } = useUser();
+  const deleteAccountMutation = useMutation(api.users.deleteAccount);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  useEffect(() => {
-    if (!isAuthenticated) {
-      router.replace("/login");
-    }
-  }, [isAuthenticated, router]);
-
-  if (!isAuthenticated) {
-    return null;
-  }
+  const email =
+    user?.primaryEmailAddress?.emailAddress ?? user?.emailAddresses?.[0]
+      ?.emailAddress;
 
   return (
+    <ConvexSessionShell>
     <div className="min-h-dvh bg-background">
       <ChatHeader hasMessages={false} onClear={() => {}} />
       <main className="px-4 pt-16 pb-16">
@@ -67,9 +66,7 @@ export default function AccountPage() {
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                     Email
                   </p>
-                  <p className="text-sm">
-                    {userEmail ?? "demo@example.com"}
-                  </p>
+                  <p className="text-sm">{email ?? "—"}</p>
                 </div>
                 <div className="space-y-1">
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
@@ -96,9 +93,9 @@ export default function AccountPage() {
                           Delete your account?
                         </AlertDialogTitle>
                         <AlertDialogDescription>
-                          This will permanently delete your projects, chats,
-                          and access to shared projects. This action cannot be
-                          undone.
+                          This will permanently delete your projects, chats, and
+                          access to shared projects, then remove your sign-in.
+                          This action cannot be undone.
                         </AlertDialogDescription>
                       </AlertDialogHeader>
                       <AlertDialogFooter>
@@ -108,17 +105,27 @@ export default function AccountPage() {
                         <AlertDialogAction
                           disabled={isDeleting}
                           onClick={async () => {
-                            if (!sessionToken || !convexClient) return;
                             setIsDeleting(true);
                             try {
-                              await convexClient.mutation(
-                                api.auth.deleteAccount,
-                                { token: sessionToken },
+                              await deleteAccountMutation({});
+                              const res = await fetch(
+                                "/api/account/delete-clerk",
+                                { method: "POST" },
                               );
+                              if (!res.ok) {
+                                const j = await res.json().catch(() => ({}));
+                                throw new Error(
+                                  typeof j.error === "string"
+                                    ? j.error
+                                    : "Failed to remove sign-in",
+                                );
+                              }
+                              router.replace("/sign-in");
+                              router.refresh();
+                            } catch {
+                              // Error surfaced via toast if we add one; keep dialog open state reset
                             } finally {
                               setIsDeleting(false);
-                              await logout();
-                              router.replace("/login");
                             }
                           }}
                         >
@@ -162,6 +169,6 @@ export default function AccountPage() {
         </div>
       </main>
     </div>
+    </ConvexSessionShell>
   );
 }
-

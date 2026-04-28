@@ -20,8 +20,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { useAuth } from "@/components/auth-provider";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Project } from "@/lib/project-schema";
 import {
@@ -76,7 +75,7 @@ export function CalendarView() {
   } | null>(null);
   const [calendarConflictBusy, setCalendarConflictBusy] = useState(false);
 
-  const { sessionToken } = useAuth();
+  const { isAuthenticated } = useConvexAuth();
   const updateTaskTime = useMutation(api.aiTools.updateTaskTime);
   const updateTaskDueDate = useMutation(api.aiTools.updateTaskDueDate);
   const relocateProjectWbsTask = useMutation(api.aiTools.relocateProjectWbsTask);
@@ -136,9 +135,8 @@ export function CalendarView() {
 
   const rescheduleProject = useQuery(
     api.projects.getById,
-    sessionToken && projectIdForReschedule
+    isAuthenticated && projectIdForReschedule
       ? {
-          token: sessionToken,
           projectId: projectIdForReschedule as Id<"projects">,
         }
       : "skip",
@@ -246,7 +244,7 @@ export function CalendarView() {
   );
 
   const handleConfirmReschedule = useCallback(async () => {
-    if (!pendingReschedule || !sessionToken || isRescheduling) return;
+    if (!pendingReschedule || !isAuthenticated || isRescheduling) return;
     const { event, newDate, newStartTime, durationHours } = pendingReschedule;
 
     const startHour = parseTimeToHour(newStartTime);
@@ -304,7 +302,6 @@ export function CalendarView() {
     setIsRescheduling(true);
     try {
       await updateTaskTime({
-        token: sessionToken,
         projectId: event.projectId as Id<"projects">,
         phaseOrder: event.phaseOrder,
         taskOrder: event.taskOrder,
@@ -314,7 +311,6 @@ export function CalendarView() {
 
       if (oldDateKey !== newDateKey) {
         await updateTaskDueDate({
-          token: sessionToken,
           projectId: event.projectId as Id<"projects">,
           phaseOrder: event.phaseOrder,
           taskOrder: event.taskOrder,
@@ -336,18 +332,17 @@ export function CalendarView() {
     isRescheduling,
     pendingReschedule,
     rescheduleProject?.data,
-    sessionToken,
+    isAuthenticated,
     updateTaskDueDate,
     updateTaskTime,
   ]);
 
   const handleCalendarConflictKeep = useCallback(async () => {
-    if (!calendarPhaseConflict || !sessionToken) return;
+    if (!calendarPhaseConflict || !isAuthenticated) return;
     const { event, newStartTime, newEndTime } = calendarPhaseConflict;
     setCalendarConflictBusy(true);
     try {
       await updateTaskTime({
-        token: sessionToken,
         projectId: event.projectId as Id<"projects">,
         phaseOrder: event.phaseOrder,
         taskOrder: event.taskOrder,
@@ -367,7 +362,7 @@ export function CalendarView() {
     } finally {
       setCalendarConflictBusy(false);
     }
-  }, [calendarPhaseConflict, sessionToken, updateTaskTime]);
+  }, [calendarPhaseConflict, isAuthenticated, updateTaskTime]);
 
   const runCalendarRelocate = useCallback(
     async (
@@ -375,7 +370,7 @@ export function CalendarView() {
         | { kind: "phase"; phaseOrder: number }
         | { kind: "unassigned" },
     ) => {
-      if (!calendarPhaseConflict || !sessionToken) return;
+      if (!calendarPhaseConflict || !isAuthenticated) return;
       const { event, newDateKey, newStartTime, newEndTime } =
         calendarPhaseConflict;
       const normStart =
@@ -385,7 +380,6 @@ export function CalendarView() {
       setCalendarConflictBusy(true);
       try {
         await relocateProjectWbsTask({
-          token: sessionToken,
           projectId: event.projectId as Id<"projects">,
           fromPhaseOrder: event.phaseOrder,
           taskOrder: event.taskOrder,
@@ -408,7 +402,7 @@ export function CalendarView() {
         setCalendarConflictBusy(false);
       }
     },
-    [calendarPhaseConflict, relocateProjectWbsTask, sessionToken],
+    [calendarPhaseConflict, relocateProjectWbsTask, isAuthenticated],
   );
 
   const handleCancelReschedule = useCallback(() => {
@@ -582,7 +576,7 @@ export function CalendarView() {
               onClick={handleConfirmReschedule}
               disabled={
                 isRescheduling ||
-                !sessionToken ||
+                !isAuthenticated ||
                 confirmRescheduleWaitingProject
               }
             >

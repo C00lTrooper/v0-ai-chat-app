@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useQuery } from "convex/react";
+import { useConvex, useQuery } from "convex/react";
 import {
   Dialog,
   DialogContent,
@@ -22,7 +22,6 @@ import { cn } from "@/lib/utils";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { toast } from "@/hooks/use-toast";
-import { convexClient } from "@/lib/convex";
 import type { Project } from "@/lib/project-schema";
 import type { ProjectData } from "@/components/project-page/types";
 import { GenerationReviewTree } from "@/components/project-page/GenerationReviewTree";
@@ -40,15 +39,16 @@ type GenerateProjectContentModalProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   project: ProjectData;
-  sessionToken: string;
+  ready: boolean;
 };
 
 export function GenerateProjectContentModal({
   open,
   onOpenChange,
   project,
-  sessionToken,
+  ready,
 }: GenerateProjectContentModalProps) {
+  const convex = useConvex();
   const [step, setStep] = React.useState<"form" | "review">("form");
   const [genPhases, setGenPhases] = React.useState(false);
   const [genFeatures, setGenFeatures] = React.useState(false);
@@ -73,9 +73,8 @@ export function GenerateProjectContentModal({
 
   const features = useQuery(
     api.features.listByProject,
-    open && sessionToken
+    open && ready
       ? {
-          token: sessionToken,
           projectId: project._id as Id<"projects">,
         }
       : "skip",
@@ -158,7 +157,7 @@ export function GenerateProjectContentModal({
   }, [features, selectedFeatureIds]);
 
   const handleGenerate = async () => {
-    if (!sessionToken || !parsedProject || !convexClient) return;
+    if (!ready || !parsedProject) return;
     if (
       !genPhases &&
       !genFeatures &&
@@ -208,7 +207,6 @@ export function GenerateProjectContentModal({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          token: sessionToken,
           projectId: project._id,
           project: parsedProject,
           projectName: project.projectName,
@@ -258,7 +256,7 @@ export function GenerateProjectContentModal({
   };
 
   const handleConfirmSave = async () => {
-    if (!sessionToken || !parsedProject || !convexClient) return;
+    if (!ready || !parsedProject) return;
     const payload = buildCommitPayloadFromTree(reviewPhases, parsedProject);
     const total =
       payload.newPhases.length +
@@ -275,10 +273,9 @@ export function GenerateProjectContentModal({
 
     setSaving(true);
     try {
-      const result = await convexClient.mutation(
+      const result = await convex.mutation(
         api.projectGeneration.commitIncrementalGeneration,
         {
-          token: sessionToken,
           projectId: project._id as Id<"projects">,
           newPhases: payload.newPhases,
           newFeatures: payload.newFeatures,
@@ -290,8 +287,7 @@ export function GenerateProjectContentModal({
       if (result.tasksAdded > 0) {
         for (const po of result.phaseOrdersWithNewTasks) {
           try {
-            await convexClient.action(api.scheduling.runSchedulingEngine, {
-              token: sessionToken,
+            await convex.mutation(api.scheduling.runSchedulingEngine, {
               phaseId: `${project._id}:${po}`,
             });
           } catch {
@@ -320,7 +316,7 @@ export function GenerateProjectContentModal({
   };
 
   const handleRegeneratePhase = async (phaseId: string) => {
-    if (!sessionToken || !parsedProject) return;
+    if (!ready || !parsedProject) return;
     const phase = reviewPhases.find((p) => p.id === phaseId);
     if (!phase) return;
     setRegeneratingId(`phase:${phaseId}`);
@@ -354,7 +350,6 @@ export function GenerateProjectContentModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           mode: "regenerate",
-          token: sessionToken,
           projectId: project._id,
           scope: "phase",
           subtree: JSON.stringify(subtree),
@@ -396,7 +391,7 @@ export function GenerateProjectContentModal({
     phaseId: string,
     featureId: string,
   ) => {
-    if (!sessionToken || !parsedProject) return;
+    if (!ready || !parsedProject) return;
     const phase = reviewPhases.find((p) => p.id === phaseId);
     const feature = phase?.features.find((f) => f.id === featureId);
     if (!feature) return;
@@ -419,7 +414,6 @@ export function GenerateProjectContentModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           mode: "regenerate",
-          token: sessionToken,
           projectId: project._id,
           scope: "feature",
           subtree: JSON.stringify(subtree),

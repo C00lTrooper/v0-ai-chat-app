@@ -3,27 +3,7 @@ import { v } from "convex/values";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import type { Id } from "./_generated/dataModel";
-
-async function authenticateUser(
-  ctx: QueryCtx | MutationCtx,
-  token: string,
-): Promise<Doc<"users">> {
-  const session = await ctx.db
-    .query("sessions")
-    .withIndex("by_token", (q) => q.eq("token", token))
-    .unique();
-
-  if (!session || session.expiresAt <= Date.now()) {
-    throw new Error("Unauthenticated");
-  }
-
-  const user = await ctx.db.get(session.userId);
-  if (!user) {
-    throw new Error("User not found");
-  }
-
-  return user;
-}
+import { requireUserDoc } from "./lib/requireUser";
 
 async function assertProjectAccess(
   ctx: QueryCtx | MutationCtx,
@@ -45,9 +25,9 @@ async function assertProjectAccess(
 // ---------------------------------------------------------------------------
 
 export const listByProject = query({
-  args: { token: v.string(), projectId: v.id("projects") },
+  args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     await assertProjectAccess(ctx, user, args.projectId);
 
     const chat = await ctx.db
@@ -77,9 +57,9 @@ export const listByProject = query({
 });
 
 export const listChatsByProject = query({
-  args: { token: v.string(), projectId: v.id("projects") },
+  args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     await assertProjectAccess(ctx, user, args.projectId);
 
     const chats = await ctx.db
@@ -107,15 +87,20 @@ export const listChatsByProject = query({
 });
 
 export const getChatWithMessages = query({
-  args: { token: v.string(), chatId: v.id("chats") },
+  args: { chatId: v.id("chats") },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     const chat = await ctx.db.get(args.chatId);
     if (!chat) return null;
     if (!chat.projectId) {
       throw new Error("Chat is missing projectId");
     }
-    await assertProjectAccess(ctx, user, chat.projectId);
+    const project = await ctx.db.get(chat.projectId);
+    if (!project) return null;
+    if (project.ownerId !== user._id && !project.sharedWith.includes(user._id)) {
+      // Stale localStorage / ?chatId= from another account — same as projects.getById
+      return null;
+    }
 
     const messages = await ctx.db
       .query("chatMessages")
@@ -145,12 +130,11 @@ export const getChatWithMessages = query({
 
 export const createChat = mutation({
   args: {
-    token: v.string(),
     projectId: v.id("projects"),
     name: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     const project = await assertProjectAccess(ctx, user, args.projectId);
 
     const now = Date.now();
@@ -177,14 +161,13 @@ export const createChat = mutation({
 
 export const sendMessage = mutation({
   args: {
-    token: v.string(),
     chatId: v.id("chats"),
     role: v.union(v.literal("user"), v.literal("assistant")),
     content: v.string(),
     reasoning: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     const chat = await ctx.db.get(args.chatId);
     if (!chat) throw new Error("Chat not found");
     if (!chat.projectId) {
@@ -206,12 +189,11 @@ export const sendMessage = mutation({
 
 export const renameChat = mutation({
   args: {
-    token: v.string(),
     chatId: v.id("chats"),
     name: v.string(),
   },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     const chat = await ctx.db.get(args.chatId);
     if (!chat) throw new Error("Chat not found");
     if (!chat.projectId) {
@@ -226,11 +208,10 @@ export const renameChat = mutation({
 
 export const deleteChat = mutation({
   args: {
-    token: v.string(),
     chatId: v.id("chats"),
   },
   handler: async (ctx, args) => {
-    const user = await authenticateUser(ctx, args.token);
+    const user = await requireUserDoc(ctx);
     const chat = await ctx.db.get(args.chatId);
     if (!chat) throw new Error("Chat not found");
     if (!chat.projectId) {

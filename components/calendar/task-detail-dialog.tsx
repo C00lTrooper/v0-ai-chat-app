@@ -11,10 +11,10 @@ import {
   Sparkles,
   Trash2,
 } from "lucide-react";
-import { useMutation, useQuery } from "convex/react";
+import { useConvex, useMutation, useQuery } from "convex/react";
+import type { ConvexReactClient } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { convexClient } from "@/lib/convex";
-import { useAuth } from "@/components/auth-provider";
+import { useConvexReady } from "@/hooks/use-convex-ready";
 import { toast } from "@/hooks/use-toast";
 import {
   Dialog,
@@ -81,15 +81,16 @@ function convexTimeFromScheduleHHMM(hhmm: string): string | null {
 }
 
 /** First day/time in [phaseStart, phaseEnd] with no conflicts, using suggested slots like generate-project. */
-async function findFirstFreeSlotInPhaseRange(options: {
-  token: string;
-  phaseStartYmd: string;
-  phaseEndYmd: string;
-  startNorm: string;
-  endNorm: string;
-  excludeTaskKey: string;
-}): Promise<{ date: string; startTime: string; endTime: string } | null> {
-  if (!convexClient) return null;
+async function findFirstFreeSlotInPhaseRange(
+  convex: ConvexReactClient,
+  options: {
+    phaseStartYmd: string;
+    phaseEndYmd: string;
+    startNorm: string;
+    endNorm: string;
+    excludeTaskKey: string;
+  },
+): Promise<{ date: string; startTime: string; endTime: string } | null> {
   const start = parseYmdLocal(options.phaseStartYmd);
   const end = parseYmdLocal(options.phaseEndYmd);
   if (!start || !end) return null;
@@ -101,8 +102,7 @@ async function findFirstFreeSlotInPhaseRange(options: {
     let endT = options.endNorm;
     let attempts = 0;
     while (attempts < 5) {
-      const result = await convexClient.query(api.conflicts.checkTimeConflicts, {
-        token: options.token,
+      const result = await convex.query(api.conflicts.checkTimeConflicts, {
         date: ymd,
         startTime: startT,
         endTime: endT,
@@ -134,7 +134,8 @@ export function TaskDetailDialog({
   onOpenChange,
 }: TaskDetailDialogProps) {
   const router = useRouter();
-  const { sessionToken } = useAuth();
+  const convex = useConvex();
+  const ready = useConvexReady();
   const [taskId, setTaskId] = useState<Id<"tasks"> | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [draftSubtasks, setDraftSubtasks] = useState<string[]>([]);
@@ -178,8 +179,8 @@ export function TaskDetailDialog({
 
   const projectDoc = useQuery(
     api.projects.getById,
-    sessionToken && event
-      ? { token: sessionToken, projectId: event.projectId as Id<"projects"> }
+    ready && event
+      ? { projectId: event.projectId as Id<"projects"> }
       : "skip",
   );
 
@@ -197,13 +198,13 @@ export function TaskDetailDialog({
 
   const subtasks = useQuery(
     api.tasks.listSubtasks,
-    sessionToken && taskId && !isDeletingTask
-      ? { token: sessionToken, taskId }
+    ready && taskId && !isDeletingTask
+      ? { taskId }
       : "skip",
   );
 
   useEffect(() => {
-    if (!open || !event || !sessionToken) {
+    if (!open || !event || !ready) {
       setTaskId(null);
       return;
     }
@@ -213,7 +214,6 @@ export function TaskDetailDialog({
     void (async () => {
       try {
         const result = await ensureTask({
-          token: sessionToken,
           projectId: event.projectId as Id<"projects">,
           phaseOrder: event.phaseOrder,
           taskOrder: event.taskOrder,
@@ -235,7 +235,7 @@ export function TaskDetailDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, event, sessionToken, ensureTask]);
+  }, [open, event, ready, ensureTask]);
 
   useEffect(() => {
     const start = timeStrToHHMM(event?.timeStr ?? "9:00 AM");
@@ -278,11 +278,10 @@ export function TaskDetailDialog({
   if (!event) return null;
 
   const handleDeleteTask = async () => {
-    if (!sessionToken || !event || isDeletingTask) return;
+    if (!ready || !event || isDeletingTask) return;
     setIsDeletingTask(true);
     try {
       await deleteProjectWbsTask({
-        token: sessionToken,
         projectId: event.projectId as Id<"projects">,
         phaseOrder: event.phaseOrder,
         taskOrder: event.taskOrder,
@@ -302,11 +301,10 @@ export function TaskDetailDialog({
   };
 
   const handleMarkTaskDone = async () => {
-    if (!sessionToken || isUpdatingStatus) return;
+    if (!ready || isUpdatingStatus) return;
     setIsUpdatingStatus(true);
     try {
       await updateTaskStatus({
-        token: sessionToken,
         projectId: event.projectId as Id<"projects">,
         phaseOrder: event.phaseOrder,
         taskOrder: event.taskOrder,
@@ -328,10 +326,9 @@ export function TaskDetailDialog({
     subtaskId: Id<"subtasks">,
     completed: boolean,
   ) => {
-    if (!sessionToken) return;
+    if (!ready) return;
     try {
       await toggleSubtaskCompleted({
-        token: sessionToken,
         subtaskId,
         completed,
       });
@@ -344,7 +341,7 @@ export function TaskDetailDialog({
   };
 
   const handleUpdateTime = async () => {
-    if (!sessionToken || !event || isUpdatingTime) return;
+    if (!ready || !event || isUpdatingTime) return;
     const normalizedStart = convexTimeFromScheduleHHMM(taskStartHHMM);
     if (!normalizedStart) {
       toast({
@@ -371,7 +368,6 @@ export function TaskDetailDialog({
     setIsUpdatingTime(true);
     try {
       await updateTaskTime({
-        token: sessionToken,
         projectId: event.projectId as Id<"projects">,
         phaseOrder: event.phaseOrder,
         taskOrder: event.taskOrder,
@@ -392,7 +388,7 @@ export function TaskDetailDialog({
   };
 
   const handleUpdateDate = async (newDate: string) => {
-    if (!sessionToken || !event || isUpdatingDate) return;
+    if (!ready || !event || isUpdatingDate) return;
     if (!newDate) {
       toast({
         variant: "destructive",
@@ -403,7 +399,6 @@ export function TaskDetailDialog({
     setIsUpdatingDate(true);
     try {
       await updateTaskDueDate({
-        token: sessionToken,
         projectId: event.projectId as Id<"projects">,
         phaseOrder: event.phaseOrder,
         taskOrder: event.taskOrder,
@@ -423,7 +418,7 @@ export function TaskDetailDialog({
   };
 
   const considerDateChange = async (ymd: string) => {
-    if (!sessionToken || !event) return;
+    if (!ready || !event) return;
 
     const assignedToPhase = event.phaseOrder >= 1;
     if (!assignedToPhase) {
@@ -458,7 +453,7 @@ export function TaskDetailDialog({
   };
 
   const handlePhaseChange = async (value: string) => {
-    if (!sessionToken || !event || !projectDoc?.isOwner) return;
+    if (!ready || !event || !projectDoc?.isOwner) return;
     const newPhaseOrder = Number.parseInt(value, 10);
     if (
       !Number.isFinite(newPhaseOrder) ||
@@ -509,7 +504,6 @@ export function TaskDetailDialog({
     setIsUpdatingPhase(true);
     try {
       const result = await relocateProjectWbsTask({
-        token: sessionToken,
         projectId: event.projectId as Id<"projects">,
         fromPhaseOrder: event.phaseOrder,
         taskOrder: event.taskOrder,
@@ -558,7 +552,7 @@ export function TaskDetailDialog({
   };
 
   const handlePhaseMismatchMoveIntoPhase = async () => {
-    if (!sessionToken || !event || !phaseMismatchCtx) return;
+    if (!ready || !event || !phaseMismatchCtx) return;
     const startNorm = convexTimeFromScheduleHHMM(taskStartHHMM);
     const endNorm = convexTimeFromScheduleHHMM(taskEndHHMM);
     if (!startNorm || !endNorm) {
@@ -579,8 +573,7 @@ export function TaskDetailDialog({
     setPhaseMismatchBusy(true);
     try {
       const excludeKey = `${event.projectId}:${phaseMismatchCtx.phaseOrder}:${phaseMismatchCtx.taskOrder}`;
-      const slot = await findFirstFreeSlotInPhaseRange({
-        token: sessionToken,
+      const slot = await findFirstFreeSlotInPhaseRange(convex, {
         phaseStartYmd: phaseMismatchCtx.phaseStartYmd,
         phaseEndYmd: phaseMismatchCtx.phaseEndYmd,
         startNorm,
@@ -598,7 +591,6 @@ export function TaskDetailDialog({
       }
 
       await relocateProjectWbsTask({
-        token: sessionToken,
         projectId: event.projectId as Id<"projects">,
         fromPhaseOrder: phaseMismatchCtx.phaseOrder,
         taskOrder: phaseMismatchCtx.taskOrder,
@@ -651,7 +643,7 @@ export function TaskDetailDialog({
   const runRelocate = async (
     target: { kind: "phase"; phaseOrder: number } | { kind: "unassigned" },
   ) => {
-    if (!sessionToken || !event || !pendingConflictYmd) return;
+    if (!ready || !event || !pendingConflictYmd) return;
     setPhaseConflictBusy(true);
     try {
       const startNorm = convexTimeFromScheduleHHMM(taskStartHHMM);
@@ -671,7 +663,6 @@ export function TaskDetailDialog({
         return;
       }
       await relocateProjectWbsTask({
-        token: sessionToken,
         projectId: event.projectId as Id<"projects">,
         fromPhaseOrder: event.phaseOrder,
         taskOrder: event.taskOrder,
@@ -699,7 +690,7 @@ export function TaskDetailDialog({
   };
 
   const handleGenerateSubtasks = async () => {
-    if (!event || !sessionToken || !taskId || isGenerating) return;
+    if (!event || !ready || !taskId || isGenerating) return;
     setIsGenerating(true);
     try {
       const response = await fetch("/api/generate-subtasks", {
@@ -730,7 +721,7 @@ export function TaskDetailDialog({
   };
 
   const handleSaveSubtasks = async () => {
-    if (!sessionToken || !taskId) return;
+    if (!ready || !taskId) return;
     const titles = draftSubtasks
       .map((t) => t.trim())
       .filter((t) => t.length > 0);
@@ -740,7 +731,6 @@ export function TaskDetailDialog({
     }
     try {
       await createSubtasks({
-        token: sessionToken,
         taskId,
         titles,
       });
@@ -755,13 +745,12 @@ export function TaskDetailDialog({
   };
 
   const handleAddSubtask = async () => {
-    if (!sessionToken || !taskId) return;
+    if (!ready || !taskId) return;
     const title = newSubtaskTitle.trim();
     if (!title || isAddingSubtask) return;
     setIsAddingSubtask(true);
     try {
       await createSubtasks({
-        token: sessionToken,
         taskId,
         titles: [title],
       });
@@ -777,10 +766,9 @@ export function TaskDetailDialog({
   };
 
   const handleDeleteSubtask = async (subtaskId: Id<"subtasks">) => {
-    if (!sessionToken) return;
+    if (!ready) return;
     try {
       await deleteSubtaskMut({
-        token: sessionToken,
         subtaskId,
       });
     } catch {
@@ -828,7 +816,7 @@ export function TaskDetailDialog({
                     variant="default"
                     className={cn(projectPrimaryButtonClassName, "w-fit")}
                     onClick={handleMarkTaskDone}
-                    disabled={!sessionToken || isUpdatingStatus}
+                    disabled={!ready || isUpdatingStatus}
                   >
                     <CheckCircle2 className="size-4" aria-hidden />
                     Mark as done
@@ -856,7 +844,7 @@ export function TaskDetailDialog({
                     variant="outline"
                     className="h-8 w-fit gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
                     onClick={() => setDeleteConfirmOpen(true)}
-                    disabled={!sessionToken || isDeletingTask}
+                    disabled={!ready || isDeletingTask}
                   >
                     <Trash2 className="size-4" aria-hidden />
                     Delete task
@@ -870,7 +858,7 @@ export function TaskDetailDialog({
             <div
               className={cn(
                 "flex flex-col gap-5 px-5 py-4 sm:px-6 sm:py-5",
-                sessionToken &&
+                ready &&
                   taskId &&
                   "lg:flex-row lg:items-stretch lg:gap-0 lg:py-0",
               )}
@@ -878,7 +866,7 @@ export function TaskDetailDialog({
               <div
                 className={cn(
                   "min-w-0 flex-1 space-y-3",
-                  sessionToken && taskId && "lg:px-6 lg:py-5",
+                  ready && taskId && "lg:px-6 lg:py-5",
                 )}
               >
                 {event.taskDescription && (
@@ -898,7 +886,7 @@ export function TaskDetailDialog({
                 </div>
                 <div className="flex items-center gap-3 text-sm">
                   <Layers className="size-4 shrink-0 text-muted-foreground" />
-                  {projectDoc?.isOwner && sessionToken ? (
+                  {projectDoc?.isOwner && ready ? (
                     <Select
                       value={String(event.phaseOrder)}
                       onValueChange={(v) => void handlePhaseChange(v)}
@@ -959,7 +947,7 @@ export function TaskDetailDialog({
                           "whitespace-normal break-words hover:bg-accent/80 hover:text-foreground",
                           "dark:bg-input/30 dark:hover:bg-input/50",
                         )}
-                        disabled={!sessionToken || isUpdatingDate}
+                        disabled={!ready || isUpdatingDate}
                         aria-label="Task date"
                       >
                         {taskDate || "Select date"}
@@ -1008,7 +996,7 @@ export function TaskDetailDialog({
                         projectPrimaryButtonClassName,
                       )}
                       onClick={handleUpdateTime}
-                      disabled={isUpdatingTime || !sessionToken}
+                      disabled={isUpdatingTime || !ready}
                     >
                       {isUpdatingTime ? "Saving…" : "Save time"}
                     </Button>
@@ -1016,7 +1004,7 @@ export function TaskDetailDialog({
                 </div>
               </div>
 
-              {sessionToken && taskId && (
+              {ready && taskId && (
                 <div
                   className={cn(
                     "flex min-h-0 w-full min-w-0 flex-col space-y-2 border-t border-border pt-4",
@@ -1115,7 +1103,7 @@ export function TaskDetailDialog({
                       disabled={
                         !newSubtaskTitle.trim() ||
                         isAddingSubtask ||
-                        !sessionToken
+                        !ready
                       }
                     >
                       Add
@@ -1302,7 +1290,7 @@ export function TaskDetailDialog({
               onClick={handleSaveSubtasks}
               disabled={
                 draftSubtasks.every((t) => !t.trim()) ||
-                !sessionToken ||
+                !ready ||
                 !taskId
               }
             >
