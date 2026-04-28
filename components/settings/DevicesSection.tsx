@@ -2,11 +2,11 @@
 
 import { useState } from "react";
 import { useSessionList, useSession } from "@clerk/nextjs";
-import { Monitor, Smartphone, Laptop, LogOut, Loader2 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Monitor, Smartphone, Laptop, LogOut, Loader2 } from "lucide-react";
 
 function DeviceIcon({
   isMobile,
@@ -30,12 +30,18 @@ export function DevicesSection() {
   const [revoking, setRevoking] = useState<string | null>(null);
   const [revokingAll, setRevokingAll] = useState(false);
 
+  async function endClientSession(
+    session: NonNullable<typeof sessions>[number],
+  ) {
+    await session.end();
+  }
+
   const handleRevoke = async (sessionId: string) => {
     const target = sessions?.find((s) => s.id === sessionId);
     if (!target) return;
     setRevoking(sessionId);
     try {
-      await target.revoke();
+      await endClientSession(target);
     } catch (err) {
       console.error(err);
     } finally {
@@ -48,7 +54,7 @@ export function DevicesSection() {
     setRevokingAll(true);
     try {
       const others = sessions.filter((s) => s.id !== currentSession?.id);
-      await Promise.all(others.map((s) => s.revoke()));
+      await Promise.all(others.map((s) => endClientSession(s)));
     } catch (err) {
       console.error(err);
     } finally {
@@ -108,7 +114,18 @@ export function DevicesSection() {
 
         {activeSessions.map((session) => {
           const isCurrent = session.id === currentSession?.id;
-          const activity = session.latestActivity;
+          const activity = (
+            session as typeof session & {
+              latestActivity?: {
+                browserName?: string | null;
+                browserVersion?: string | null;
+                city?: string | null;
+                country?: string | null;
+                isMobile?: boolean;
+                deviceType?: string | null;
+              };
+            }
+          ).latestActivity;
           const browserLabel = [
             activity?.browserName,
             activity?.browserVersion,

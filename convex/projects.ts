@@ -9,6 +9,7 @@ import {
   remapConvexTasksForWbsChange,
 } from "./wbsPersistence";
 import { requireUserDoc } from "./lib/requireUser";
+import { deleteProjectCascade } from "./lib/deleteProjectCascade";
 
 /** Full JSON envelope for new projects (empty WBS until user adds phases or runs generator). */
 function buildInitialProjectData(args: {
@@ -335,38 +336,7 @@ export const remove = mutation({
       throw new Error("Not found or not authorized");
     }
 
-    // Delete all chats and their messages for this project
-    const chats = await ctx.db
-      .query("chats")
-      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
-      .collect();
-
-    for (const chat of chats) {
-      const messages = await ctx.db
-        .query("chatMessages")
-        .withIndex("by_chatId", (q) => q.eq("chatId", chat._id))
-        .collect();
-
-      for (const msg of messages) {
-        await ctx.db.delete(msg._id);
-      }
-
-      await ctx.db.delete(chat._id);
-    }
-
-    // Delete all share records for this project
-    const shares = await ctx.db
-      .query("projectShares")
-      .withIndex("by_projectId_and_userId", (q) =>
-        q.eq("projectId", args.projectId),
-      )
-      .collect();
-
-    for (const share of shares) {
-      await ctx.db.delete(share._id);
-    }
-
-    await ctx.db.delete(args.projectId);
+    await deleteProjectCascade(ctx, args.projectId);
     return { ok: true as const };
   },
 });

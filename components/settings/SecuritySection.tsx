@@ -97,8 +97,9 @@ export function SecuritySection() {
     setSendingReset(true);
     try {
       await signIn.create({
-        strategy: "reset_password_email_code",
         identifier: email,
+        // @ts-expect-error — PrepareSignIn typings omit password reset; valid at runtime.
+        strategy: "reset_password_email_code",
       });
       setResetSent(true);
     } catch (err) {

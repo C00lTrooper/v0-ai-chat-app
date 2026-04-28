@@ -85,13 +85,9 @@ export function ConnectedAccountsSection() {
 
   if (!isLoaded) return null;
 
-  const connectedProviders = new Set(
-    user?.externalAccounts.map((a) => a.provider) ?? [],
-  );
-
-  const availableToConnect = CONNECTABLE_PROVIDERS.filter(
-    ({ provider }) => !connectedProviders.has(provider),
-  );
+  const availableToConnect = CONNECTABLE_PROVIDERS.filter(({ provider }) => {
+    return !(user?.externalAccounts ?? []).some((a) => a.provider === provider);
+  });
 
   return (
     <div className="mx-auto max-w-2xl space-y-8">

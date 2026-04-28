@@ -1,5 +1,6 @@
 import { mutation } from "./_generated/server";
 import { requireUserDoc } from "./lib/requireUser";
+import { deleteProjectCascade } from "./lib/deleteProjectCascade";
 
 /** Call once after sign-in so queries can resolve the Convex `users` row. */
 export const ensureCurrentUser = mutation({
@@ -15,43 +16,13 @@ export const deleteAccount = mutation({
   handler: async (ctx) => {
     const user = await requireUserDoc(ctx);
 
-    // Delete all projects owned by this user (and their related data)
     const ownedProjects = await ctx.db
       .query("projects")
       .withIndex("by_ownerId", (q) => q.eq("ownerId", user._id))
       .collect();
 
     for (const project of ownedProjects) {
-      const chats = await ctx.db
-        .query("chats")
-        .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
-        .collect();
-
-      for (const chat of chats) {
-        const messages = await ctx.db
-          .query("chatMessages")
-          .withIndex("by_chatId", (q) => q.eq("chatId", chat._id))
-          .collect();
-
-        for (const msg of messages) {
-          await ctx.db.delete(msg._id);
-        }
-
-        await ctx.db.delete(chat._id);
-      }
-
-      const shares = await ctx.db
-        .query("projectShares")
-        .withIndex("by_projectId_and_userId", (q) =>
-          q.eq("projectId", project._id),
-        )
-        .collect();
-
-      for (const share of shares) {
-        await ctx.db.delete(share._id);
-      }
-
-      await ctx.db.delete(project._id);
+      await deleteProjectCascade(ctx, project._id);
     }
 
     const membershipShares = await ctx.db
@@ -60,13 +31,40 @@ export const deleteAccount = mutation({
       .collect();
 
     for (const share of membershipShares) {
-      const project = await ctx.db.get("projects", share.projectId);
-      if (project) {
-        await ctx.db.patch(project._id, {
-          sharedWith: project.sharedWith.filter((id) => id !== user._id),
+      const proj = await ctx.db.get(share.projectId);
+      if (proj) {
+        await ctx.db.patch(proj._id, {
+          sharedWith: proj.sharedWith.filter((id) => id !== user._id),
         });
       }
       await ctx.db.delete(share._id);
+    }
+
+    const remainingTransactions = await ctx.db
+      .query("transactions")
+      .withIndex("by_userId", (q) => q.eq("userId", user._id))
+      .collect();
+
+    for (const t of remainingTransactions) {
+      await ctx.db.delete(t._id);
+    }
+
+    const categories = await ctx.db
+      .query("budgetCategories")
+      .withIndex("by_userId", (q) => q.eq("userId", user._id))
+      .collect();
+
+    for (const c of categories) {
+      await ctx.db.delete(c._id);
+    }
+
+    const userEvents = await ctx.db
+      .query("calendarEvents")
+      .withIndex("by_userId", (q) => q.eq("userId", user._id))
+      .collect();
+
+    for (const ev of userEvents) {
+      await ctx.db.delete(ev._id);
     }
 
     await ctx.db.delete(user._id);
